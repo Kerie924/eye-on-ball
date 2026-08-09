@@ -1,0 +1,234 @@
+from datetime import datetime, timedelta, timezone
+from secrets import token_urlsafe
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import urlopen
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+
+from app.config import settings
+from app.database import get_db
+from app.dependencies import get_current_user
+from app.models import User, UserRole
+from app.schemas import (
+    ForgotPasswordRequest,
+    ForgotPasswordResponse,
+    GoogleAuthRequest,
+    MessageResponse,
+    ResetPasswordRequest,
+    TokenResponse,
+    UserLogin,
+    UserProfileUpdate,
+    UserRegister,
+    UserResponse,
+)
+from app.security import create_access_token, hash_password, verify_password
+
+router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+def verify_google_id_token(id_token: str) -> dict:
+    import json
+
+    query = urlencode({"id_token": id_token})
+    url = f"https://oauth2.googleapis.com/tokeninfo?{query}"
+    try:
+        with urlopen(url, timeout=15) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token Google invalido",
+        ) from exc
+
+    allowed_audiences = settings.google_client_ids
+    if allowed_audiences and payload.get("aud") not in allowed_audiences:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token Google nao corresponde ao Client ID configurado",
+        )
+
+    if payload.get("email_verified") in ("false", False):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="E-mail Google nao verificado",
+        )
+
+    email = payload.get("email")
+    google_id = payload.get("sub")
+    if not email or not google_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token Google incompleto",
+        )
+
+    return payload
+
+
+@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+def register(payload: UserRegister, db: Session = Depends(get_db)):
+    existing = db.query(User).filter(User.email == payload.email).first()
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Este e-mail ja esta cadastrado",
+        )
+
+    user = User(
+        email=payload.email,
+        password_hash=hash_password(payload.password),
+        full_name=payload.full_name,
+        role=payload.role,
+        is_approved=payload.role == UserRole.athlete,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@router.post("/login", response_model=TokenResponse)
+def login(payload: UserLogin, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == payload.email).first()
+    if not user or not verify_password(payload.password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="E-mail ou senha incorretos",
+        )
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Conta desativada",
+        )
+
+    token = create_access_token(user.id, user.role)
+    return TokenResponse(access_token=token)
+
+
+@router.post("/google", response_model=TokenResponse)
+def google_login(payload: GoogleAuthRequest, db: Session = Depends(get_db)):
+    google = verify_google_id_token(payload.id_token)
+    email = google["email"]
+    google_id = google["sub"]
+    full_name = google.get("name") or email.split("@")[0]
+    avatar_url = google.get("picture")
+
+    user = db.query(User).filter(User.google_id == google_id).first()
+    if not user:
+        user = db.query(User).filter(User.email == email).first()
+
+    if user:
+        if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Conta desativada",
+            )
+        user.google_id = google_id
+        if avatar_url and not user.avatar_url:
+            user.avatar_url = avatar_url
+        if full_name:
+            user.full_name = full_name
+    else:
+        user = User(
+            email=email,
+            password_hash=hash_password(token_urlsafe(24)),
+            full_name=full_name,
+            role=payload.role,
+            is_approved=payload.role == UserRole.athlete,
+            google_id=google_id,
+            avatar_url=avatar_url,
+        )
+        db.add(user)
+
+    db.commit()
+    db.refresh(user)
+    return TokenResponse(access_token=create_access_token(user.id, user.role))
+
+
+@router.get("/me", response_model=UserResponse)
+def me(current_user: User = Depends(get_current_user)):
+    return current_user
+
+
+@router.patch("/me", response_model=UserResponse)
+def update_me(
+    payload: UserProfileUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    user = db.get(User, current_user.id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario nao encontrado")
+
+    if payload.email and payload.email != user.email:
+        existing = db.query(User).filter(User.email == payload.email).first()
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Este e-mail ja esta cadastrado",
+            )
+        user.email = payload.email
+
+    if payload.full_name:
+        user.full_name = payload.full_name
+
+    if payload.avatar_url is not None:
+        user.avatar_url = payload.avatar_url or None
+
+    if payload.new_password:
+        if not payload.current_password or not verify_password(
+            payload.current_password, user.password_hash
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Senha atual incorreta",
+            )
+        user.password_hash = hash_password(payload.new_password)
+
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@router.post("/forgot-password", response_model=ForgotPasswordResponse)
+def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == payload.email).first()
+    message = "Se o e-mail existir, voce recebera instrucoes para redefinir a senha."
+
+    if not user:
+        return ForgotPasswordResponse(message=message)
+
+    token = token_urlsafe(32)
+    user.reset_token = token
+    user.reset_token_expires = datetime.now(timezone.utc) + timedelta(hours=1)
+    db.commit()
+
+    # No SMTP in MVP: return token so the mobile app can complete the reset flow.
+    return ForgotPasswordResponse(message=message, reset_token=token)
+
+
+@router.post("/reset-password", response_model=MessageResponse)
+def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.reset_token == payload.token).first()
+    if not user or not user.reset_token_expires:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Token invalido ou expirado",
+        )
+
+    expires = user.reset_token_expires
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+
+    if expires < datetime.now(timezone.utc):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Token invalido ou expirado",
+        )
+
+    user.password_hash = hash_password(payload.password)
+    user.reset_token = None
+    user.reset_token_expires = None
+    db.commit()
+    return MessageResponse(message="Senha atualizada com sucesso")

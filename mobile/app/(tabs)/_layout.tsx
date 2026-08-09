@@ -1,0 +1,117 @@
+import { Ionicons } from '@expo/vector-icons'
+import { Redirect, Tabs } from 'expo-router'
+import { StyleSheet, View } from 'react-native'
+
+import { LoadingState } from '@/src/components/LoadingState'
+import { useAuth } from '@/src/auth/AuthContext'
+import { colors } from '@/src/theme/colors'
+
+export default function TabLayout() {
+  const { user, loading } = useAuth()
+
+  if (loading) {
+    return <LoadingState message="Carregando..." />
+  }
+
+  if (!user) {
+    return <Redirect href="/(auth)/welcome" />
+  }
+
+  return (
+    <Tabs
+      screenOptions={{
+        tabBarActiveTintColor: colors.grass,
+        tabBarInactiveTintColor: colors.textMuted,
+        tabBarStyle: {
+          backgroundColor: colors.blackSoft,
+          borderTopColor: colors.cardBorder,
+          height: 64,
+          paddingTop: 6,
+          paddingBottom: 8,
+        },
+        tabBarLabelStyle: {
+          fontSize: 11,
+          fontWeight: '600',
+        },
+        headerStyle: {
+          backgroundColor: colors.black,
+        },
+        headerTintColor: colors.white,
+        headerTitleStyle: {
+          fontWeight: '700',
+        },
+        headerShadowVisible: false,
+        sceneStyle: {
+          backgroundColor: colors.black,
+        },
+      }}
+    >
+      <Tabs.Screen
+        name="index"
+        options={{
+          title: 'Inicio',
+          headerShown: false,
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="home" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="recordings"
+        options={{
+          title: 'Gravacoes',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="videocam" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="record"
+        options={{
+          title: 'Gravar',
+          headerShown: false,
+          tabBarIcon: () => (
+            <View style={styles.recordBtn}>
+              <Ionicons name="radio-button-on" size={28} color={colors.textOnGreen} />
+            </View>
+          ),
+          tabBarLabel: () => null,
+        }}
+      />
+      <Tabs.Screen
+        name="courts"
+        options={{
+          title: 'Quadras',
+          headerShown: false,
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="football" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: 'Perfil',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="person" size={size} color={color} />
+          ),
+        }}
+      />
+    </Tabs>
+  )
+}
+
+const styles = StyleSheet.create({
+  recordBtn: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: colors.grass,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 18,
+    borderWidth: 4,
+    borderColor: colors.blackSoft,
+    boxShadow: '0 0 16px rgba(34,197,94,0.45)',
+  },
+})

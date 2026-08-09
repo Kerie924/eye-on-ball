@@ -1,0 +1,16 @@
+[Unit]
+Description=Olho no Lance Court Capture Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/olho-no-lance/capture
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/olho-no-lance/capture/.venv/bin/python /opt/olho-no-lance/capture/run.py --config /etc/olho-no-lance/config.yaml
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

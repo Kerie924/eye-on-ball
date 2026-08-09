@@ -1,0 +1,37 @@
+# Olho no Lance - Court Capture Agent
+# Copy to /etc/olho-no-lance/config.yaml on the Raspberry Pi
+
+api_url: http://192.168.1.100:8000
+device_key: PASTE_DEVICE_KEY_FROM_ADMIN_PANEL
+
+buffer_seconds: 300
+clip_seconds: 30
+segment_seconds: 10
+heartbeat_seconds: 60
+button_cooldown_seconds: 3
+
+# Button types: serial, gpio, mock
+cameras:
+  - index: 1
+    name: Camera 1
+    rtsp_url: rtsp://admin:password@192.168.1.101:554/cam/realmonitor?channel=1&subtype=0
+    button:
+      type: serial
+      port: /dev/ttyUSB0
+      baudrate: 115200
+      trigger_on: "1"
+
+  - index: 2
+    name: Camera 2
+    rtsp_url: rtsp://admin:password@192.168.1.102:554/cam/realmonitor?channel=1&subtype=0
+    button:
+      type: serial
+      port: /dev/ttyUSB1
+      baudrate: 115200
+      trigger_on: "2"
+
+# Local paths on the mini PC
+data_dir: /var/lib/olho-no-lance
+
+# Optional: override for development
+# data_dir: ./data

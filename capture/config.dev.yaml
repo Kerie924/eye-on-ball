@@ -1,0 +1,25 @@
+api_url: http://127.0.0.1:8000
+device_key: 69e80kDaLfipJAD6FoWrf5tFCUSOg_d5wR6474hoLYQ
+
+buffer_seconds: 60
+clip_seconds: 30
+segment_seconds: 10
+heartbeat_seconds: 30
+button_cooldown_seconds: 2
+
+data_dir: ./data
+
+cameras:
+  - index: 1
+    name: Camera 1
+    rtsp_url: test://local
+    button:
+      type: mock
+      mock_file: ./data/button-1.trigger
+
+  - index: 2
+    name: Camera 2
+    rtsp_url: test://local
+    button:
+      type: mock
+      mock_file: ./data/button-2.trigger

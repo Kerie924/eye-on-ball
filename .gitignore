@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.env
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+capture/data/
+capture/.venv/
+admin/dist/
+admin/node_modules/
+mobile/node_modules/
+mobile/.expo/
+mobile/dist/
+Project_scope.txt
