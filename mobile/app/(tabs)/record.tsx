@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { ApiError, api } from '@/src/api/client'
 import { useAuth } from '@/src/auth/AuthContext'
+import { AppBrandHeader } from '@/src/components/AppBrandHeader'
 import { colors } from '@/src/theme/colors'
 import type { CourtAccess } from '@/src/types'
 import { showMessage } from '@/src/utils/dialogs'
@@ -100,7 +101,8 @@ export default function RecordScreen() {
   const canCapture = Boolean(selectedCourtId) && !capturing && !loading
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top']}>
+      <AppBrandHeader />
       <View style={styles.content}>
         <Text style={styles.title}>Gravacao</Text>
         <Text style={styles.subtitle}>

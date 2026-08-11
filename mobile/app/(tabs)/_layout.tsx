@@ -2,9 +2,14 @@ import { Ionicons } from '@expo/vector-icons'
 import { Redirect, Tabs } from 'expo-router'
 import { StyleSheet, View } from 'react-native'
 
-import { LoadingState } from '@/src/components/LoadingState'
 import { useAuth } from '@/src/auth/AuthContext'
+import { BrandLogo } from '@/src/components/BrandLogo'
+import { LoadingState } from '@/src/components/LoadingState'
 import { colors } from '@/src/theme/colors'
+
+function HeaderLogo() {
+  return <BrandLogo variant="wordmark" width={200} />
+}
 
 export default function TabLayout() {
   const { user, loading } = useAuth()
@@ -40,6 +45,7 @@ export default function TabLayout() {
         headerTitleStyle: {
           fontWeight: '700',
         },
+        headerTitleAlign: 'center',
         headerShadowVisible: false,
         sceneStyle: {
           backgroundColor: colors.black,
@@ -60,6 +66,7 @@ export default function TabLayout() {
         name="recordings"
         options={{
           title: 'Gravacoes',
+          headerTitle: HeaderLogo,
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="videocam" size={size} color={color} />
           ),
@@ -92,6 +99,7 @@ export default function TabLayout() {
         name="profile"
         options={{
           title: 'Perfil',
+          headerTitle: HeaderLogo,
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="person" size={size} color={color} />
           ),

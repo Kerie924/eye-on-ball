@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Copy, Pencil, Plus, Search, Trash2 } from 'lucide-react'
+import { Copy, Pencil, Plus, Radio, Search, Trash2 } from 'lucide-react'
 import { api } from '../api/client'
 import { PageHeader } from '../components/PageHeader'
 import { PaginationBar } from '../components/PaginationBar'
@@ -21,6 +21,7 @@ export function CourtsPage() {
   const [name, setName] = useState('')
   const [address, setAddress] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [triggeringId, setTriggeringId] = useState<number | null>(null)
 
   async function loadCourts() {
     const data = await api.courts()
@@ -82,6 +83,20 @@ export function CourtsPage() {
       await loadCourts()
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Erro ao gerar chave', 'error')
+    }
+  }
+
+  async function handleTrigger(court: Court) {
+    if (triggeringId != null) return
+    setTriggeringId(court.id)
+    try {
+      const result = await api.triggerCapture(court.id)
+      showToast(result.message, result.device_online ? 'success' : 'error')
+      await loadCourts()
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Erro ao disparar gravacao', 'error')
+    } finally {
+      setTriggeringId(null)
     }
   }
 
@@ -153,6 +168,7 @@ export function CourtsPage() {
                 .filter(Boolean)
                 .sort()
                 .pop()
+              const isTriggering = triggeringId === court.id
 
               return (
                 <tr key={court.id} className="table-row-interactive">
@@ -175,6 +191,15 @@ export function CourtsPage() {
                   <td>{lastHeartbeat ? formatDateTime(lastHeartbeat) : '-'}</td>
                   <td>
                     <div className="icon-actions">
+                      <button
+                        type="button"
+                        className="icon-btn trigger-btn"
+                        title="Gravar lance (PRONTO)"
+                        disabled={triggeringId != null}
+                        onClick={() => handleTrigger(court)}
+                      >
+                        <Radio size={16} className={isTriggering ? 'spin' : undefined} />
+                      </button>
                       <button
                         type="button"
                         className="icon-btn"

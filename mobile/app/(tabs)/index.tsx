@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { api } from '@/src/api/client'
 import { useAuth } from '@/src/auth/AuthContext'
+import { AppBrandHeader } from '@/src/components/AppBrandHeader'
 import { EmptyState } from '@/src/components/EmptyState'
 import { LoadingState } from '@/src/components/LoadingState'
 import { RecordingCard } from '@/src/components/RecordingCard'
@@ -69,6 +70,7 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
+      <AppBrandHeader />
       <FlatList
         contentContainerStyle={styles.content}
         data={recordings}

@@ -19,6 +19,7 @@ import {
   useGoogleIdToken,
 } from '@/src/auth/googleAuth'
 import { Button } from '@/src/components/Button'
+import { BrandLogo } from '@/src/components/BrandLogo'
 import { Input } from '@/src/components/Input'
 import { colors } from '@/src/theme/colors'
 import type { UserRole } from '@/src/types'
@@ -106,6 +107,7 @@ export default function RegisterScreen() {
       >
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <View style={styles.header}>
+            <BrandLogo variant="full" width={280} />
             <Text style={styles.title}>Criar conta</Text>
             <Text style={styles.subtitle}>
               Atletas solicitam acesso por quadra. Olheiros precisam de aprovacao.
@@ -211,16 +213,20 @@ const styles = StyleSheet.create({
   header: {
     gap: 8,
     marginTop: 12,
+    alignItems: 'center',
   },
   title: {
+    marginTop: 8,
     color: colors.white,
     fontSize: 28,
     fontWeight: '800',
+    alignSelf: 'stretch',
   },
   subtitle: {
     color: colors.textSecondary,
     fontSize: 15,
     lineHeight: 22,
+    alignSelf: 'stretch',
   },
   form: {
     gap: 14,

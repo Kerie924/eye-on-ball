@@ -122,6 +122,7 @@ select {
   display: block;
   height: auto;
   object-fit: contain;
+  background: transparent;
 }
 
 .brand-logo-mark {
@@ -130,13 +131,15 @@ select {
 }
 
 .brand-logo-sidebar {
-  width: min(100%, 210px);
+  width: min(100%, 248px);
   height: auto;
+  background: transparent;
 }
 
 .brand-logo-login {
-  width: min(100%, 320px);
+  width: min(100%, 360px);
   height: auto;
+  background: transparent;
 }
 
 .brand-mark {
@@ -697,6 +700,24 @@ select {
 
 .table-row-interactive:hover {
   background: var(--grass-pale);
+}
+
+.icon-btn.trigger-btn {
+  color: var(--grass-dark);
+  border-color: var(--grass);
+  background: var(--grass-mist);
+}
+
+.icon-btn.trigger-btn:hover:not(:disabled) {
+  background: var(--grass);
+  color: #fff;
+  border-color: var(--grass-dark);
+}
+
+.icon-btn.trigger-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .icon-btn.danger {

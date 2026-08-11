@@ -35,7 +35,7 @@ export default function WelcomeScreen() {
         >
           <SafeAreaView style={styles.safe}>
             <View style={styles.brand}>
-              <BrandLogo variant="full" height={88} />
+              <BrandLogo variant="full" width={340} />
               <Text style={styles.subtitle}>
                 Seu lance. Gravou. Compartilhou.
               </Text>

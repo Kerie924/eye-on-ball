@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { ApiError, api } from '@/src/api/client'
 import { useAuth } from '@/src/auth/AuthContext'
+import { AppBrandHeader } from '@/src/components/AppBrandHeader'
 import { Button } from '@/src/components/Button'
 import { EmptyState } from '@/src/components/EmptyState'
 import { LoadingState } from '@/src/components/LoadingState'
@@ -124,6 +125,7 @@ export default function CourtsScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
+      <AppBrandHeader />
       <FlatList
         style={styles.root}
         contentContainerStyle={styles.content}
