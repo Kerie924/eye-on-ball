@@ -19,7 +19,7 @@ const SOURCES: Record<BrandVariant, string> = {
 export function BrandLogo({
   variant = 'full',
   className = '',
-  alt = 'Olho no Lance',
+  alt = 'Lance On',
 }: BrandLogoProps) {
   return (
     <img

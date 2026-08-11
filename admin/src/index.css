@@ -130,12 +130,12 @@ select {
 }
 
 .brand-logo-sidebar {
-  width: min(100%, 188px);
+  width: min(100%, 210px);
   height: auto;
 }
 
 .brand-logo-login {
-  width: min(100%, 280px);
+  width: min(100%, 320px);
   height: auto;
 }
 

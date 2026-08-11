@@ -13,9 +13,9 @@ interface BrandLogoProps {
 }
 
 const ASPECT: Record<BrandVariant, number> = {
-  full: 371 / 108,
-  mark: 250 / 268,
-  wordmark: 670 / 135,
+  full: 1147 / 428,
+  mark: 472 / 296,
+  wordmark: 1442 / 240,
 }
 
 const SOURCE: Record<BrandVariant, number> = {
@@ -31,7 +31,7 @@ export function BrandLogo({ variant = 'full', height = 56, style }: BrandLogoPro
       source={SOURCE[variant]}
       style={[{ width, height }, style]}
       resizeMode="contain"
-      accessibilityLabel="Olho no Lance"
+      accessibilityLabel="Lance On"
     />
   )
 }

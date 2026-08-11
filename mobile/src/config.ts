@@ -15,8 +15,8 @@ function resolveApiUrl(): string {
 
 export const API_URL = resolveApiUrl()
 
-export const APP_NAME = 'Olho no Lance'
-export const APP_TAGLINE = 'E Lance Gravou'
+export const APP_NAME = 'Lance On'
+export const APP_TAGLINE = 'Seu lance. Gravou. Compartilhou.'
 
 export const GOOGLE_WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID?.trim() || ''
 export const GOOGLE_ANDROID_CLIENT_ID =

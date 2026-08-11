@@ -32,7 +32,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Olho no Lance API",
+    title="Lance On API",
     description="Backend for court recording platform",
     version="0.1.0",
     lifespan=lifespan,
@@ -56,4 +56,4 @@ app.include_router(admin.router, prefix="/api")
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "app": "Olho no Lance"}
+    return {"status": "ok", "app": "Lance On"}

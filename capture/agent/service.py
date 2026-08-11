@@ -148,7 +148,7 @@ def configure_logging(verbose: bool = False) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     argv = argv or sys.argv[1:]
-    config_path = "/etc/olho-no-lance/config.yaml"
+    config_path = "/etc/lance-on/config.yaml"
     verbose = False
 
     if "--config" in argv:

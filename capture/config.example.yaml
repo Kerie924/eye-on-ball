@@ -1,5 +1,5 @@
-# Olho no Lance - Court Capture Agent
-# Copy to /etc/olho-no-lance/config.yaml on the Raspberry Pi
+# Lance On - Court Capture Agent
+# Copy to /etc/lance-on/config.yaml on the Raspberry Pi
 
 api_url: http://192.168.1.100:8000
 device_key: PASTE_DEVICE_KEY_FROM_ADMIN_PANEL
@@ -31,7 +31,7 @@ cameras:
       trigger_on: "2"
 
 # Local paths on the mini PC
-data_dir: /var/lib/olho-no-lance
+data_dir: /var/lib/lance-on
 
 # Optional: override for development
 # data_dir: ./data

@@ -74,6 +74,6 @@ def load_config(path: str | Path) -> AgentConfig:
         segment_seconds=int(raw.get("segment_seconds", 10)),
         heartbeat_seconds=int(raw.get("heartbeat_seconds", 60)),
         button_cooldown_seconds=int(raw.get("button_cooldown_seconds", 3)),
-        data_dir=Path(raw.get("data_dir", "/var/lib/olho-no-lance")),
+        data_dir=Path(raw.get("data_dir", "/var/lib/lance-on")),
         cameras=cameras,
     )

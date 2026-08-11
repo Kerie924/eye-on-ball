@@ -12,7 +12,7 @@ import { api, setAuthToken } from '../api/client'
 import { deleteToken, getToken, setToken } from '../storage/tokenStorage'
 import type { User, UserRole } from '../types'
 
-const TOKEN_KEY = 'olho_token'
+const TOKEN_KEY = 'lanceon_token'
 
 interface AuthContextValue {
   user: User | null

@@ -1,4 +1,4 @@
-# Olho no Lance — Mobile App
+# Lance On — Mobile App
 
 Cross-platform app (Android/iOS) for athletes and scouts to view and download court recordings.
 

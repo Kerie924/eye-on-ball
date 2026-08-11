@@ -37,7 +37,7 @@ def make_test_clip(path: Path, seconds: int = 3) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Test upload to Olho no Lance backend")
+    parser = argparse.ArgumentParser(description="Test upload to Lance On backend")
     parser.add_argument("--config", default="config.example.yaml")
     parser.add_argument("--camera", type=int, default=1)
     args = parser.parse_args()

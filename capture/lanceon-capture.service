@@ -1,0 +1,16 @@
+[Unit]
+Description=Lance On Court Capture Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/lance-on/capture
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/lance-on/capture/.venv/bin/python /opt/lance-on/capture/run.py --config /etc/lance-on/config.yaml
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

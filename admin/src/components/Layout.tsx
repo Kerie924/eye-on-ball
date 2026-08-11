@@ -66,7 +66,7 @@ export function Layout() {
       ])
 
       downloadCsv(
-        `relatorio-olho-no-lance-${new Date().toISOString().slice(0, 10)}.csv`,
+        `relatorio-lance-on-${new Date().toISOString().slice(0, 10)}.csv`,
         ['Tipo', 'Nome', 'Detalhe', 'Status', 'Data'],
         [
           ...recordings.map((recording) => [

@@ -2,9 +2,9 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: olho
-      POSTGRES_PASSWORD: olho_dev
-      POSTGRES_DB: olho_no_lance
+      POSTGRES_USER: lanceon
+      POSTGRES_PASSWORD: lanceon_dev
+      POSTGRES_DB: lance_on
     ports:
       - "5432:5432"
     volumes:

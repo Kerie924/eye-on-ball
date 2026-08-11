@@ -97,7 +97,7 @@ class ButtonListener:
 
         chip = gpiod.Chip("gpiochip0")
         line = chip.get_line(pin)
-        line.request(consumer=f"olho-cam{self.camera.index}", type=gpiod.LINE_REQ_DIR_IN)
+        line.request(consumer=f"lanceon-cam{self.camera.index}", type=gpiod.LINE_REQ_DIR_IN)
 
         previous = line.get_value()
         while not self._stop.is_set():
@@ -109,7 +109,7 @@ class ButtonListener:
 
     def _run_mock(self) -> None:
         mock_file = Path(
-            self.button.mock_file or f"/tmp/olho-button-{self.camera.index}.trigger"
+            self.button.mock_file or f"/tmp/lanceon-button-{self.camera.index}.trigger"
         )
         logger.info(
             "Mock button for camera %s watching %s",

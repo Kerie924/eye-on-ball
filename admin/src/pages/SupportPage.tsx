@@ -4,7 +4,7 @@ import { PageHeader } from '../components/PageHeader'
 import { LoadingState } from '../components/shared'
 
 export function SupportPage() {
-  const [supportEmail, setSupportEmail] = useState('suporte@olhonolance.com.br')
+  const [supportEmail, setSupportEmail] = useState('suporte@lanceon.com.br')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -20,7 +20,7 @@ export function SupportPage() {
       <PageHeader title="Suporte" subtitle="Central de ajuda e contato." />
       <div className="panel support-panel hover-lift">
         <h2>Precisa de ajuda?</h2>
-        <p>Entre em contato com a equipe tecnica para suporte da plataforma Olho no Lance.</p>
+        <p>Entre em contato com a equipe tecnica para suporte da plataforma Lance On.</p>
         <ul>
           <li>
             E-mail:{' '}

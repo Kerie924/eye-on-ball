@@ -6,7 +6,7 @@ import { BrandLogo } from '../components/BrandLogo'
 
 export function LoginPage() {
   const { user, login } = useAuth()
-  const [email, setEmail] = useState('admin@olhonolance.com.br')
+  const [email, setEmail] = useState('admin@lanceon.com.br')
   const [password, setPassword] = useState('change-me')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)

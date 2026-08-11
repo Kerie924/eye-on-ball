@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-INSTALL_DIR="/opt/olho-no-lance/capture"
-CONFIG_DIR="/etc/olho-no-lance"
-DATA_DIR="/var/lib/olho-no-lance"
+INSTALL_DIR="/opt/lance-on/capture"
+CONFIG_DIR="/etc/lance-on"
+DATA_DIR="/var/lib/lance-on"
 
-echo "Installing Olho no Lance capture agent..."
+echo "Installing Lance On capture agent..."
 
 if ! command -v ffmpeg >/dev/null 2>&1; then
   echo "FFmpeg is required. Install it first:"
@@ -24,13 +24,13 @@ if [ ! -f "$CONFIG_DIR/config.yaml" ]; then
   echo "Created $CONFIG_DIR/config.yaml — edit API URL, device key, and camera RTSP URLs."
 fi
 
-sudo cp olho-capture.service /etc/systemd/system/olho-capture.service
+sudo cp lanceon-capture.service /etc/systemd/system/lanceon-capture.service
 sudo systemctl daemon-reload
-sudo systemctl enable olho-capture.service
+sudo systemctl enable lanceon-capture.service
 
 echo ""
 echo "Installation complete."
 echo "1. Edit $CONFIG_DIR/config.yaml"
-echo "2. Start service: sudo systemctl start olho-capture"
-echo "3. View logs:    sudo journalctl -u olho-capture -f"
+echo "2. Start service: sudo systemctl start lanceon-capture"
+echo "3. View logs:    sudo journalctl -u lanceon-capture -f"
 echo "4. Mock test:    python3 scripts/simulate_button.py 1"

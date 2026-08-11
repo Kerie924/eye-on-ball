@@ -189,9 +189,9 @@ class PlatformSettings(Base):
     __tablename__ = "platform_settings"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    platform_name: Mapped[str] = mapped_column(String(255), default="Olho no Lance")
+    platform_name: Mapped[str] = mapped_column(String(255), default="Lance On")
     support_email: Mapped[str] = mapped_column(
-        String(255), default="suporte@olhonolance.com.br"
+        String(255), default="suporte@lanceon.com.br"
     )
     timezone: Mapped[str] = mapped_column(String(64), default="America/Sao_Paulo")
     language: Mapped[str] = mapped_column(String(16), default="pt-BR")

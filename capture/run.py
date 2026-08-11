@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Entry point for the Olho no Lance capture agent."""
+"""Entry point for the Lance On capture agent."""
 
 from agent.service import main
 

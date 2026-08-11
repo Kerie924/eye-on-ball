@@ -38,7 +38,7 @@ export default function ProfileScreen() {
       router.push('/(tabs)/courts')
       return
     }
-    showMessage('Suporte', 'Envie um e-mail para suporte@olhonolance.com.br')
+    showMessage('Suporte', 'Envie um e-mail para suporte@lanceon.com.br')
   }
 
   return (

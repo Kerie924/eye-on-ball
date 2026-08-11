@@ -35,9 +35,9 @@ export default function WelcomeScreen() {
         >
           <SafeAreaView style={styles.safe}>
             <View style={styles.brand}>
-              <BrandLogo variant="full" height={72} />
+              <BrandLogo variant="full" height={88} />
               <Text style={styles.subtitle}>
-                Grave seus lances e assista em segundos
+                Seu lance. Gravou. Compartilhou.
               </Text>
             </View>
 

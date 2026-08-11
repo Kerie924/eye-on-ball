@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    database_url: str = "postgresql://olho:olho_dev@localhost:5432/olho_no_lance"
+    database_url: str = "postgresql://lanceon:lanceon_dev@localhost:5432/lance_on"
     secret_key: str = "dev-secret-key-change-in-production"
     access_token_expire_minutes: int = 60 * 24 * 7
 
@@ -13,13 +13,13 @@ class Settings(BaseSettings):
     s3_public_endpoint_url: str | None = None
     s3_access_key: str = "minioadmin"
     s3_secret_key: str = "minioadmin"
-    s3_bucket: str = "olho-videos"
+    s3_bucket: str = "lanceon-videos"
     s3_region: str = "us-east-1"
 
     recording_retention_hours: int = 48
     clip_duration_seconds: int = 30
 
-    admin_email: str = "admin@olhonolance.com.br"
+    admin_email: str = "admin@lanceon.com.br"
     admin_password: str = "change-me"
     admin_name: str = "Administrador"
 

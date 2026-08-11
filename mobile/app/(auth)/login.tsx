@@ -99,7 +99,7 @@ export default function LoginScreen() {
       >
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <View style={styles.header}>
-            <BrandLogo variant="full" height={64} />
+            <BrandLogo variant="full" height={78} />
             <Text style={styles.title}>Entrar</Text>
             <Text style={styles.subtitle}>Acesse seus lances gravados</Text>
           </View>
