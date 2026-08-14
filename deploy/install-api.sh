@@ -15,41 +15,84 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
-# Prefer Python 3.12 (stable wheels). Avoid bare python3 if it is 3.14+ without wheels.
+python_version() {
+  "$1" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || true
+}
+
+# Prefer 3.11–3.13 (known binary wheels). Skip 3.14+ until ecosystem catches up.
+is_supported_python() {
+  local ver major minor
+  ver="$(python_version "$1")"
+  [ -n "$ver" ] || return 1
+  major="${ver%%.*}"
+  minor="${ver#*.}"
+  [ "$major" -eq 3 ] && [ "$minor" -ge 11 ] && [ "$minor" -le 13 ]
+}
+
 resolve_python() {
-  local candidate ver major minor
-  for candidate in python3.12 python3.11 python3.13 python3; do
-    if command -v "$candidate" >/dev/null 2>&1; then
-      ver="$("$candidate" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
-      major="${ver%%.*}"
-      minor="${ver#*.}"
-      if [ "$major" -eq 3 ] && [ "$minor" -ge 11 ] && [ "$minor" -le 13 ]; then
-        echo "$candidate"
-        return 0
-      fi
+  local candidate
+  for candidate in python3.13 python3.12 python3.11 python3; do
+    if command -v "$candidate" >/dev/null 2>&1 && is_supported_python "$candidate"; then
+      echo "$candidate"
+      return 0
     fi
   done
   return 1
 }
 
-if ! PYTHON_BIN="$(resolve_python)"; then
-  echo "Need Python 3.11–3.13 (python3 on this host may be too new, e.g. 3.14)."
-  echo "Install 3.12, then re-run this script:"
-  echo "  sudo apt update"
-  echo "  sudo apt install -y python3.12 python3.12-venv python3.12-dev"
+ensure_python() {
+  if resolve_python >/dev/null; then
+    resolve_python
+    return 0
+  fi
+
+  echo "No supported Python (3.11–3.13) found. Installing OS packages..."
+  sudo apt-get update -y
+  # Do not assume 3.12 exists on every Ubuntu release (e.g. 25.04).
+  sudo apt-get install -y python3 python3-venv python3-dev build-essential libpq-dev rsync || true
+
+  if resolve_python >/dev/null; then
+    resolve_python
+    return 0
+  fi
+
+  # Last resort on Ubuntu: deadsnakes provides 3.12
+  if [ -f /etc/os-release ]; then
+    # shellcheck source=/dev/null
+    . /etc/os-release
+    if [ "${ID:-}" = "ubuntu" ]; then
+      echo "Trying deadsnakes PPA for Python 3.12..."
+      sudo apt-get install -y software-properties-common
+      sudo add-apt-repository -y ppa:deadsnakes/ppa
+      sudo apt-get update -y
+      sudo apt-get install -y python3.12 python3.12-venv python3.12-dev
+    fi
+  fi
+
+  if resolve_python >/dev/null; then
+    resolve_python
+    return 0
+  fi
+
+  echo "Could not find Python 3.11–3.13."
+  echo "Report these and we will pick another path:"
+  echo "  cat /etc/os-release"
+  echo "  python3 --version"
+  exit 1
+}
+
+PYTHON_BIN="$(ensure_python)"
+echo "Using $($PYTHON_BIN --version) ($PYTHON_BIN)"
+
+sudo apt-get update -y
+sudo apt-get install -y build-essential libpq-dev rsync python3-venv || true
+
+# Ensure venv module for the chosen interpreter
+if ! "$PYTHON_BIN" -m venv --help >/dev/null 2>&1; then
+  echo "venv module missing for ${PYTHON_BIN}. Try:"
+  echo "  sudo apt-get install -y ${PYTHON_BIN}-venv"
   exit 1
 fi
-
-echo "Using $($PYTHON_BIN --version)"
-
-# Build tools help if a package ever needs a source build
-sudo apt-get update -y
-sudo apt-get install -y \
-  "$PYTHON_BIN" \
-  "${PYTHON_BIN}-venv" \
-  build-essential \
-  libpq-dev \
-  rsync
 
 sudo mkdir -p "${INSTALL_ROOT}"
 sudo rsync -a --delete \
@@ -71,7 +114,7 @@ fi
 cd "${INSTALL_ROOT}/deploy"
 sudo docker compose -f docker-compose.prod.yml --env-file postgres.env up -d
 
-# Fresh venv with the selected Python (drop broken 3.14 venv if present)
+# Fresh venv with the selected Python
 cd "${INSTALL_ROOT}/backend"
 if [ -d .venv ]; then
   echo "Removing existing .venv so it is recreated with ${PYTHON_BIN}..."
@@ -86,7 +129,6 @@ if [ ! -f "${INSTALL_ROOT}/backend/.env" ]; then
   echo "Created ${INSTALL_ROOT}/backend/.env — edit S3 keys, SECRET_KEY, DB password"
 fi
 
-# systemd unit (adjust User if not ubuntu)
 TMP_UNIT="$(mktemp)"
 sed "s/User=ubuntu/User=${SERVICE_USER}/; s/Group=ubuntu/Group=${SERVICE_USER}/" \
   "${INSTALL_ROOT}/deploy/lanceon-api.service" > "${TMP_UNIT}"
