@@ -135,14 +135,21 @@ export const api = {
     return request<Court[]>('/api/courts')
   },
 
-  createCourt(name: string, address: string) {
+  createCourt(name: string, address: string, cameraCount = 2) {
     return request<Court>('/api/courts', {
       method: 'POST',
-      body: JSON.stringify({ name, address: address || null }),
+      body: JSON.stringify({
+        name,
+        address: address || null,
+        camera_count: cameraCount,
+      }),
     })
   },
 
-  updateCourt(courtId: number, payload: { name?: string; address?: string | null }) {
+  updateCourt(
+    courtId: number,
+    payload: { name?: string; address?: string | null; camera_count?: number },
+  ) {
     return request<Court>(`/api/courts/${courtId}`, {
       method: 'PATCH',
       body: JSON.stringify(payload),

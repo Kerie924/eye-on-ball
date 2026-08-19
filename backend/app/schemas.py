@@ -3,6 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field
 
+from app.constants import MAX_CAMERAS_PER_COURT, MIN_CAMERAS_PER_COURT
 from app.models import AccessRequestStatus, UserRole
 
 
@@ -66,11 +67,17 @@ class GoogleAuthRequest(BaseModel):
 class CourtCreate(BaseModel):
     name: str = Field(min_length=2, max_length=255)
     address: str | None = None
+    camera_count: int = Field(
+        default=2, ge=MIN_CAMERAS_PER_COURT, le=MAX_CAMERAS_PER_COURT
+    )
 
 
 class CourtUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=2, max_length=255)
     address: str | None = None
+    camera_count: int | None = Field(
+        default=None, ge=MIN_CAMERAS_PER_COURT, le=MAX_CAMERAS_PER_COURT
+    )
 
 
 class CourtResponse(BaseModel):
@@ -137,12 +144,14 @@ class RecordingResponse(BaseModel):
 
 
 class DeviceHeartbeat(BaseModel):
-    camera_index: int = Field(ge=1, le=2)
+    camera_index: int = Field(ge=MIN_CAMERAS_PER_COURT, le=MAX_CAMERAS_PER_COURT)
 
 
 class CaptureTriggerRequest(BaseModel):
     court_id: int
-    camera_index: int | None = Field(default=None, ge=1, le=2)
+    camera_index: int | None = Field(
+        default=None, ge=MIN_CAMERAS_PER_COURT, le=MAX_CAMERAS_PER_COURT
+    )
 
 
 class CaptureTriggerResponse(BaseModel):

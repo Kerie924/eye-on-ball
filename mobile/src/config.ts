@@ -1,16 +1,10 @@
-import { Platform } from 'react-native'
-
 function resolveApiUrl(): string {
   const envUrl = process.env.EXPO_PUBLIC_API_URL
   if (envUrl) {
     return envUrl.replace(/\/$/, '')
   }
 
-  if (Platform.OS === 'android') {
-    return 'http://10.0.2.2:8000'
-  }
-
-  return 'http://localhost:8000'
+  return 'http://13.210.97.155:8000'
 }
 
 export const API_URL = resolveApiUrl()

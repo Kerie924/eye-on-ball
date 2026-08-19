@@ -8,7 +8,7 @@ from pathlib import Path
 from agent.api_client import ApiClient
 from agent.buffer import BufferRecorder, build_clip, clip_trigger_time
 from agent.buttons import ButtonListener
-from agent.config import AgentConfig, load_config
+from agent.config import AgentConfig, CameraConfig, load_config
 
 logger = logging.getLogger(__name__)
 
@@ -21,13 +21,14 @@ class CaptureService:
         self.listeners: list[ButtonListener] = []
         self._stop = threading.Event()
         self._heartbeat_thread: threading.Thread | None = None
-        self._upload_lock = threading.Lock()
+        self._camera_locks: dict[int, threading.Lock] = {}
 
     def start(self) -> None:
         if not self.api.health_check():
             logger.warning("Backend health check failed; continuing anyway")
 
         for camera in self.config.cameras:
+            self._camera_locks[camera.index] = threading.Lock()
             buffer_dir = self.config.data_dir / f"camera-{camera.index}" / "buffer"
             recorder = BufferRecorder(
                 camera=camera,
@@ -38,13 +39,34 @@ class CaptureService:
             recorder.start()
             self.recorders[camera.index] = recorder
 
+            if camera.button.enabled:
+                listener = ButtonListener(
+                    camera=camera,
+                    on_trigger=self.handle_trigger,
+                    cooldown_seconds=self.config.button_cooldown_seconds,
+                )
+                listener.start()
+                self.listeners.append(listener)
+
+        if self.config.court_button and self.config.court_button.enabled:
+            court_camera = CameraConfig(
+                index=0,
+                name="Court button",
+                rtsp_url="",
+                button=self.config.court_button,
+            )
             listener = ButtonListener(
-                camera=camera,
-                on_trigger=self.handle_trigger,
+                camera=court_camera,
+                on_trigger=lambda _index: self.handle_all_cameras(),
                 cooldown_seconds=self.config.button_cooldown_seconds,
             )
             listener.start()
             self.listeners.append(listener)
+            logger.info(
+                "Court button enabled (%s) — press records all %s camera(s)",
+                self.config.court_button.type,
+                len(self.config.cameras),
+            )
 
         self._heartbeat_thread = threading.Thread(
             target=self._heartbeat_loop, daemon=True, name="heartbeat"
@@ -58,8 +80,16 @@ class CaptureService:
 
         logger.info("Capture service started for %s camera(s)", len(self.config.cameras))
 
+    def handle_all_cameras(self) -> None:
+        for camera_index in sorted(self.recorders):
+            self.handle_trigger(camera_index)
+
     def handle_trigger(self, camera_index: int) -> None:
-        if not self._upload_lock.acquire(blocking=False):
+        lock = self._camera_locks.get(camera_index)
+        if lock is None:
+            logger.error("No recorder found for camera %s", camera_index)
+            return
+        if not lock.acquire(blocking=False):
             logger.warning("Upload already in progress; ignoring trigger for camera %s", camera_index)
             return
 
@@ -92,7 +122,7 @@ class CaptureService:
         except Exception:
             logger.exception("Failed to process trigger for camera %s", camera_index)
         finally:
-            self._upload_lock.release()
+            lock.release()
 
     def _heartbeat_loop(self) -> None:
         while not self._stop.is_set():

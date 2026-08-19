@@ -25,6 +25,8 @@ class ButtonListener:
         self._last_trigger = 0.0
 
     def start(self) -> None:
+        if not self.button.enabled:
+            return
         target = {
             "serial": self._run_serial,
             "gpio": self._run_gpio,
@@ -95,17 +97,72 @@ class ButtonListener:
             self._run_mock()
             return
 
+        logger.info(
+            "Listening GPIO pin %s (HIGH idle, LOW press) for camera %s",
+            pin,
+            self.camera.index,
+        )
+        try:
+            if hasattr(gpiod, "request_lines"):
+                self._run_gpio_v2(gpiod, pin)
+            else:
+                self._run_gpio_v1(gpiod, pin)
+        except Exception:
+            logger.exception("GPIO listener failed for camera %s; falling back to mock", self.camera.index)
+            self._run_mock()
+
+    def _confirm_press(self, previous: int, current: int, reread) -> bool:
+        """Falling edge HIGH->LOW, then wait to debounce bounce."""
+        if not (previous == 1 and current == 0):
+            return False
+        time.sleep(0.08)
+        return reread() == 0
+
+    def _run_gpio_v2(self, gpiod, pin: int) -> None:
+        from gpiod.line import Bias, Direction, Value
+
+        settings = gpiod.LineSettings(direction=Direction.INPUT, bias=Bias.PULL_UP)
+        request = gpiod.request_lines(
+            "/dev/gpiochip0",
+            consumer=f"lanceon-cam{self.camera.index}",
+            config={pin: settings},
+        )
+
+        def read() -> int:
+            return 1 if request.get_value(pin) == Value.ACTIVE else 0
+
+        previous = read()
+        while not self._stop.is_set():
+            current = read()
+            if self._confirm_press(previous, current, read):
+                self._fire()
+                current = 0
+            previous = current
+            time.sleep(0.02)
+
+    def _run_gpio_v1(self, gpiod, pin: int) -> None:
         chip = gpiod.Chip("gpiochip0")
         line = chip.get_line(pin)
-        line.request(consumer=f"lanceon-cam{self.camera.index}", type=gpiod.LINE_REQ_DIR_IN)
+        flags = 0
+        if hasattr(gpiod, "LINE_REQ_FLAG_BIAS_PULL_UP"):
+            flags = gpiod.LINE_REQ_FLAG_BIAS_PULL_UP
+        line.request(
+            consumer=f"lanceon-cam{self.camera.index}",
+            type=gpiod.LINE_REQ_DIR_IN,
+            flags=flags,
+        )
 
-        previous = line.get_value()
+        def read() -> int:
+            return int(line.get_value())
+
+        previous = read()
         while not self._stop.is_set():
-            current = line.get_value()
-            if previous == 1 and current == 0:
+            current = read()
+            if self._confirm_press(previous, current, read):
                 self._fire()
+                current = 0
             previous = current
-            time.sleep(0.05)
+            time.sleep(0.02)
 
     def _run_mock(self) -> None:
         mock_file = Path(

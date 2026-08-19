@@ -3,6 +3,8 @@ from pathlib import Path
 
 import yaml
 
+MAX_CAMERAS = 6
+
 
 @dataclass
 class ButtonConfig:
@@ -12,6 +14,10 @@ class ButtonConfig:
     trigger_on: str = "1"
     pin: int | None = None
     mock_file: str | None = None
+
+    @property
+    def enabled(self) -> bool:
+        return self.type not in {"", "none", "disabled"}
 
 
 @dataclass
@@ -33,6 +39,7 @@ class AgentConfig:
     button_cooldown_seconds: int
     data_dir: Path
     cameras: list[CameraConfig]
+    court_button: ButtonConfig | None = None
 
     @property
     def segment_count(self) -> int:
@@ -43,28 +50,49 @@ class AgentConfig:
         return max(1, -(-self.clip_seconds // self.segment_seconds))
 
 
+def _parse_button(raw: dict | None, default_trigger: str = "1") -> ButtonConfig:
+    button_raw = raw or {"type": "none"}
+    return ButtonConfig(
+        type=str(button_raw.get("type", "none")),
+        port=button_raw.get("port"),
+        baudrate=int(button_raw.get("baudrate", 115200)),
+        trigger_on=str(button_raw.get("trigger_on", default_trigger)),
+        pin=button_raw.get("pin"),
+        mock_file=button_raw.get("mock_file"),
+    )
+
+
 def load_config(path: str | Path) -> AgentConfig:
     with open(path, encoding="utf-8") as handle:
         raw = yaml.safe_load(handle)
 
     cameras = []
     for item in raw["cameras"]:
-        button_raw = item.get("button", {"type": "mock"})
+        index = int(item["index"])
         cameras.append(
             CameraConfig(
-                index=int(item["index"]),
-                name=item.get("name", f"Camera {item['index']}"),
+                index=index,
+                name=item.get("name", f"Camera {index}"),
                 rtsp_url=item["rtsp_url"],
-                button=ButtonConfig(
-                    type=button_raw.get("type", "mock"),
-                    port=button_raw.get("port"),
-                    baudrate=int(button_raw.get("baudrate", 115200)),
-                    trigger_on=str(button_raw.get("trigger_on", str(item["index"]))),
-                    pin=button_raw.get("pin"),
-                    mock_file=button_raw.get("mock_file"),
-                ),
+                button=_parse_button(item.get("button"), default_trigger=str(index)),
             )
         )
+
+    if not cameras:
+        raise ValueError("At least one camera is required")
+    if len(cameras) > MAX_CAMERAS:
+        raise ValueError(f"Maximum {MAX_CAMERAS} cameras per court")
+
+    indexes = [camera.index for camera in cameras]
+    if any(index < 1 or index > MAX_CAMERAS for index in indexes):
+        raise ValueError(f"Camera index must be between 1 and {MAX_CAMERAS}")
+    if len(set(indexes)) != len(indexes):
+        raise ValueError("Camera indexes must be unique")
+
+    court_button_raw = raw.get("button")
+    court_button = _parse_button(court_button_raw) if court_button_raw else None
+    if court_button and not court_button.enabled:
+        court_button = None
 
     return AgentConfig(
         api_url=raw["api_url"].rstrip("/"),
@@ -76,4 +104,5 @@ def load_config(path: str | Path) -> AgentConfig:
         button_cooldown_seconds=int(raw.get("button_cooldown_seconds", 3)),
         data_dir=Path(raw.get("data_dir", "/var/lib/lance-on")),
         cameras=cameras,
+        court_button=court_button,
     )

@@ -20,6 +20,7 @@ export function CourtsPage() {
   const [editingCourt, setEditingCourt] = useState<Court | null>(null)
   const [name, setName] = useState('')
   const [address, setAddress] = useState('')
+  const [cameraCount, setCameraCount] = useState(2)
   const [submitting, setSubmitting] = useState(false)
   const [triggeringId, setTriggeringId] = useState<number | null>(null)
 
@@ -42,6 +43,7 @@ export function CourtsPage() {
     setEditingCourt(null)
     setName('')
     setAddress('')
+    setCameraCount(2)
     setModalMode('create')
   }
 
@@ -49,6 +51,7 @@ export function CourtsPage() {
     setEditingCourt(court)
     setName(court.name)
     setAddress(court.address ?? '')
+    setCameraCount(devicesByCourt[court.id]?.length || 2)
     setModalMode('edit')
   }
 
@@ -57,12 +60,13 @@ export function CourtsPage() {
     setSubmitting(true)
     try {
       if (modalMode === 'create') {
-        await api.createCourt(name.trim(), address.trim())
+        await api.createCourt(name.trim(), address.trim(), cameraCount)
         showToast('Quadra criada com sucesso', 'success')
       } else if (editingCourt) {
         await api.updateCourt(editingCourt.id, {
           name: name.trim(),
           address: address.trim() || null,
+          camera_count: cameraCount,
         })
         showToast('Quadra atualizada com sucesso', 'success')
       }
@@ -256,6 +260,19 @@ export function CourtsPage() {
             <label>
               Endereco
               <input value={address} onChange={(e) => setAddress(e.target.value)} />
+            </label>
+            <label>
+              Cameras (1 a 6)
+              <select
+                value={cameraCount}
+                onChange={(e) => setCameraCount(Number(e.target.value))}
+              >
+                {[1, 2, 3, 4, 5, 6].map((count) => (
+                  <option key={count} value={count}>
+                    {count} {count === 1 ? 'camera' : 'cameras'}
+                  </option>
+                ))}
+              </select>
             </label>
             {editingCourt?.device_api_key && (
               <label>

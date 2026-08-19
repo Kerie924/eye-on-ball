@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.constants import MAX_CAMERAS_PER_COURT
 from app.database import get_db
 from app.dependencies import get_current_user, require_admin
 from app.models import Court, Device, User, UserRole
@@ -8,6 +9,23 @@ from app.schemas import CourtCreate, CourtResponse, CourtUpdate, DeviceResponse,
 from app.security import generate_device_api_key
 
 router = APIRouter(prefix="/courts", tags=["courts"])
+
+
+def _ensure_camera_devices(db: Session, court_id: int, camera_count: int) -> None:
+    existing = {
+        device.camera_index
+        for device in db.query(Device).filter(Device.court_id == court_id).all()
+    }
+    for camera_index in range(1, camera_count + 1):
+        if camera_index in existing:
+            continue
+        db.add(
+            Device(
+                court_id=court_id,
+                camera_index=camera_index,
+                name=f"Camera {camera_index}",
+            )
+        )
 
 
 @router.post("", response_model=CourtResponse, status_code=status.HTTP_201_CREATED)
@@ -31,14 +49,7 @@ def create_court(
     db.add(court)
     db.flush()
 
-    for camera_index in (1, 2):
-        db.add(
-            Device(
-                court_id=court.id,
-                camera_index=camera_index,
-                name=f"Camera {camera_index}",
-            )
-        )
+    _ensure_camera_devices(db, court.id, payload.camera_count)
 
     db.commit()
     db.refresh(court)
@@ -87,6 +98,22 @@ def update_court(
 
     if payload.address is not None:
         court.address = payload.address
+
+    if payload.camera_count is not None:
+        current = (
+            db.query(Device)
+            .filter(Device.court_id == court.id)
+            .count()
+        )
+        if payload.camera_count < current:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Nao e possivel reduzir o numero de cameras ({current} cadastradas). "
+                    f"O limite e {MAX_CAMERAS_PER_COURT}."
+                ),
+            )
+        _ensure_camera_devices(db, court.id, payload.camera_count)
 
     db.commit()
     db.refresh(court)

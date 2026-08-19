@@ -1,4 +1,4 @@
-api_url: http://127.0.0.1:8000
+api_url: http://13.210.97.155:8000
 device_key: dTDsDA30I6xy2FYm5_VJzrv3Q7CrXAABt1t5y0_T3yM
 
 buffer_seconds: 60

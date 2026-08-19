@@ -13,6 +13,10 @@ if ! command -v ffmpeg >/dev/null 2>&1; then
   exit 1
 fi
 
+# libgpiod helps the GPIO button listener on Raspberry Pi
+sudo apt-get update -y
+sudo apt-get install -y python3-libgpiod libgpiod-dev || true
+
 sudo mkdir -p "$INSTALL_DIR" "$CONFIG_DIR" "$DATA_DIR"
 sudo rsync -a --delete ./ "$INSTALL_DIR"/
 cd "$INSTALL_DIR"

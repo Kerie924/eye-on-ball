@@ -6,6 +6,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 
 from app.config import settings
+from app.constants import MAX_CAMERAS_PER_COURT, MIN_CAMERAS_PER_COURT
 from app.database import get_db
 from app.dependencies import (
     get_accessible_court_ids,
@@ -118,7 +119,7 @@ def trigger_capture(
 
 @router.post("/upload", response_model=RecordingResponse, status_code=201)
 async def upload_recording(
-    camera_index: int = Form(..., ge=1, le=2),
+    camera_index: int = Form(..., ge=MIN_CAMERAS_PER_COURT, le=MAX_CAMERAS_PER_COURT),
     triggered_at: datetime = Form(...),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
