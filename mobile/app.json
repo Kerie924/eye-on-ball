@@ -45,8 +45,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "af36b042-38f9-4580-b688-3ce99e24bb29"
+        "projectId": "76277afa-3b79-4634-849e-fa38453df6f2"
       }
-    }
+    },
+    "owner": "dante0924s-team"
   }
 }

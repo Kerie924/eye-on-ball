@@ -99,22 +99,38 @@ class CaptureService:
                 logger.error("No recorder found for camera %s", camera_index)
                 return
 
-            segments = recorder.list_segments()
+            segments = recorder.list_segments(exclude_active=True)
             needed = self.config.segments_for_clip
-            if len(segments) < needed:
+            # Need enough finished video before trimming to exact clip_seconds.
+            min_segments = max(1, -(-self.config.clip_seconds // self.config.segment_seconds))
+            if len(segments) < min_segments:
                 logger.warning(
-                    "Not enough buffer segments for camera %s (%s/%s)",
+                    "Not enough buffer segments for camera %s (%s/%s). "
+                    "Wait ~%ss after start before triggering.",
                     camera_index,
                     len(segments),
-                    needed,
+                    min_segments,
+                    self.config.clip_seconds,
                 )
                 return
 
-            clip_segments = segments[-needed:]
+            clip_segments = segments[-needed:] if len(segments) >= needed else segments
             clips_dir = self.config.data_dir / f"camera-{camera_index}" / "clips"
             clip_path = clips_dir / f"clip_{int(time.time())}.mp4"
 
-            build_clip(clip_segments, clip_path)
+            logger.info(
+                "Building %ss clip for camera %s from %s segments (watermark=%s)",
+                self.config.clip_seconds,
+                camera_index,
+                len(clip_segments),
+                bool(self.config.watermark_path and self.config.watermark_path.exists()),
+            )
+            build_clip(
+                clip_segments,
+                clip_path,
+                clip_seconds=self.config.clip_seconds,
+                watermark_path=self.config.watermark_path,
+            )
             triggered_at = clip_trigger_time(clip_segments)
 
             self.api.upload_recording(camera_index, clip_path, triggered_at)

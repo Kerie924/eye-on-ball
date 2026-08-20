@@ -11,6 +11,9 @@ segment_seconds: 10
 heartbeat_seconds: 60
 button_cooldown_seconds: 3
 
+# Bottom ad banner burned into every uploaded clip
+watermark_path: assets/video-watermark.jpeg
+
 # One court button records ALL cameras (GPIO17 / physical pin 11).
 # Idle HIGH, press = LOW to GND.
 button:

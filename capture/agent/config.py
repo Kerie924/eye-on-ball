@@ -40,6 +40,7 @@ class AgentConfig:
     data_dir: Path
     cameras: list[CameraConfig]
     court_button: ButtonConfig | None = None
+    watermark_path: Path | None = None
 
     @property
     def segment_count(self) -> int:
@@ -47,7 +48,9 @@ class AgentConfig:
 
     @property
     def segments_for_clip(self) -> int:
-        return max(1, -(-self.clip_seconds // self.segment_seconds))
+        """Finished segments needed to cover clip_seconds (plus one spare for trim)."""
+        base = max(1, -(-self.clip_seconds // self.segment_seconds))
+        return base + 1
 
 
 def _parse_button(raw: dict | None, default_trigger: str = "1") -> ButtonConfig:
@@ -94,6 +97,18 @@ def load_config(path: str | Path) -> AgentConfig:
     if court_button and not court_button.enabled:
         court_button = None
 
+    config_dir = Path(path).resolve().parent
+    watermark_raw = raw.get("watermark_path", "assets/video-watermark.jpeg")
+    watermark_path = Path(watermark_raw)
+    if not watermark_path.is_absolute():
+        # Prefer path relative to config file, then relative to agent install dir.
+        candidates = [
+            config_dir / watermark_path,
+            Path("/opt/lance-on/capture") / watermark_path,
+            Path(__file__).resolve().parent.parent / watermark_path,
+        ]
+        watermark_path = next((p for p in candidates if p.exists()), candidates[0])
+
     return AgentConfig(
         api_url=raw["api_url"].rstrip("/"),
         device_key=raw["device_key"],
@@ -105,4 +120,5 @@ def load_config(path: str | Path) -> AgentConfig:
         data_dir=Path(raw.get("data_dir", "/var/lib/lance-on")),
         cameras=cameras,
         court_button=court_button,
+        watermark_path=watermark_path,
     )
