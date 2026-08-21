@@ -15,7 +15,7 @@ import { LoadingState } from '@/src/components/LoadingState'
 import { RecordingCard } from '@/src/components/RecordingCard'
 import { colors } from '@/src/theme/colors'
 import type { Recording } from '@/src/types'
-import { formatLongDate } from '@/src/utils/timeSlots'
+import { formatLongDate, recordingInTimeSlot } from '@/src/utils/timeSlots'
 
 function firstParam(value?: string | string[]) {
   const raw = Array.isArray(value) ? value[0] : value
@@ -61,7 +61,9 @@ export default function RecordingsScreen() {
       setError('')
       try {
         const data = await api.recordings(courtId, date, startTime, endTime)
-        setRecordings(data)
+        setRecordings(
+          data.filter((item) => recordingInTimeSlot(item.triggered_at, date, startTime, endTime)),
+        )
       } catch (err) {
         setRecordings([])
         setError(err instanceof Error ? err.message : 'Nao foi possivel carregar os videos')

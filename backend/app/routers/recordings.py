@@ -2,7 +2,7 @@ from datetime import date, datetime, timedelta, timezone
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 
@@ -201,14 +201,18 @@ async def upload_recording(
     )
 
 
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 @router.get("", response_model=list[RecordingResponse])
 def list_recordings(
-    court_id: int | None = None,
-    play_date: date | None = None,
-    start_time: str | None = None,
-    end_time: str | None = None,
-    started_at: datetime | None = None,
-    ended_at: datetime | None = None,
+    court_id: int | None = Query(default=None),
+    play_date: date | None = Query(default=None),
+    start_time: str | None = Query(default=None),
+    end_time: str | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -237,30 +241,17 @@ def list_recordings(
             raise HTTPException(status_code=403, detail="Sem acesso a esta quadra")
         query = query.filter(Recording.court_id == court_id)
 
-    start = None
-    end = None
+    recordings = query.all()
+
     if play_date is not None and start_time and end_time:
         start, end = brazil_slot(play_date, start_time, end_time)
-    else:
-        if started_at is not None:
-            start = (
-                started_at.astimezone(BRAZIL_TZ)
-                if started_at.tzinfo
-                else started_at.replace(tzinfo=BRAZIL_TZ)
-            )
-        if ended_at is not None:
-            end = (
-                ended_at.astimezone(BRAZIL_TZ)
-                if ended_at.tzinfo
-                else ended_at.replace(tzinfo=BRAZIL_TZ)
-            )
-
-    if start is not None:
-        query = query.filter(Recording.triggered_at >= start)
-    if end is not None:
-        query = query.filter(Recording.triggered_at < end)
-
-    recordings = query.all()
+        start_utc = start.astimezone(timezone.utc)
+        end_utc = end.astimezone(timezone.utc)
+        recordings = [
+            recording
+            for recording in recordings
+            if start_utc <= _as_utc(recording.triggered_at) < end_utc
+        ]
 
     return [
         RecordingResponse(

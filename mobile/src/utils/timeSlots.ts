@@ -22,13 +22,27 @@ export function brazilStartIso(date: string, time: string): string {
 export function brazilEndIso(date: string, endTime: string): string {
   if (endTime === '00:00') {
     const [year, month, day] = date.split('-').map(Number)
-    const next = new Date(Date.UTC(year, month - 1, day + 1))
+    const next = new Date(Date.UTC(year, month - 1, day))
+    next.setUTCDate(next.getUTCDate() + 1)
     const y = next.getUTCFullYear()
     const m = String(next.getUTCMonth() + 1).padStart(2, '0')
     const d = String(next.getUTCDate()).padStart(2, '0')
     return `${y}-${m}-${d}T00:00:00-03:00`
   }
   return `${date}T${endTime}:00-03:00`
+}
+
+export function recordingInTimeSlot(
+  triggeredAt: string,
+  date: string,
+  startTime: string,
+  endTime: string,
+): boolean {
+  const triggered = new Date(triggeredAt).getTime()
+  if (Number.isNaN(triggered)) return false
+  const start = new Date(brazilStartIso(date, startTime)).getTime()
+  const end = new Date(brazilEndIso(date, endTime)).getTime()
+  return triggered >= start && triggered < end
 }
 
 export function todayLocalDate(): string {
