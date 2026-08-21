@@ -14,7 +14,9 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "http://13.210.97.155:8000"
+        "EXPO_PUBLIC_API_URL": "https://api.lanceonpara.com.br",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "113076073338-8rs9lj8q1uaa6hs4hl1kag9vmt6d31de.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "113076073338-rsge38icgupj4afot8c631lllilvtis7.apps.googleusercontent.com"
       }
     },
     "production": {
@@ -23,7 +25,9 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "http://13.210.97.155:8000"
+        "EXPO_PUBLIC_API_URL": "https://api.lanceonpara.com.br",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "113076073338-8rs9lj8q1uaa6hs4hl1kag9vmt6d31de.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "113076073338-rsge38icgupj4afot8c631lllilvtis7.apps.googleusercontent.com"
       }
     }
   },

@@ -15,7 +15,6 @@
       "adaptiveIcon": {
         "backgroundColor": "#0f1117",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "package": "com.lanceon.app",
@@ -36,9 +35,19 @@
           "backgroundColor": "#0a0a0a"
         }
       ],
+      "expo-font",
       "expo-secure-store",
       "expo-sharing",
-      "expo-video"
+      "expo-web-browser",
+      "expo-video",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "O Lance On usa suas fotos para o avatar do perfil.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
