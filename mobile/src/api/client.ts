@@ -1,5 +1,6 @@
 import { API_URL } from '../config'
 import type {
+  City,
   Court,
   CourtAccess,
   CourtAccessRequest,
@@ -131,12 +132,21 @@ export const api = {
     })
   },
 
-  courts() {
-    return request<Court[]>('/api/courts')
+  courts(cityId?: number) {
+    const query = cityId ? `?city_id=${cityId}` : ''
+    return request<Court[]>(`/api/courts${query}`)
   },
 
-  recordings(courtId?: number) {
-    const query = courtId ? `?court_id=${courtId}` : ''
+  cities() {
+    return request<City[]>('/api/cities')
+  },
+
+  recordings(courtId?: number, startedAt?: string, endedAt?: string) {
+    const params = new URLSearchParams()
+    if (courtId) params.set('court_id', String(courtId))
+    if (startedAt) params.set('started_at', startedAt)
+    if (endedAt) params.set('ended_at', endedAt)
+    const query = params.toString() ? `?${params.toString()}` : ''
     return request<Recording[]>(`/api/recordings${query}`)
   },
 

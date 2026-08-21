@@ -5,10 +5,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.cleanup import start_scheduler
 from app.database import Base, SessionLocal, engine
-from app.routers import admin, auth, courts, devices, recordings
+from app.routers import admin, auth, cities, courts, devices, recordings
 from app.routers import access as access_router
 from app.platform_settings import ensure_platform_settings
-from app.schema_patches import ensure_user_columns
+from app.schema_patches import ensure_user_columns, seed_default_cities
 from app.security import ensure_admin_user
 from app.storage import ensure_bucket_exists
 
@@ -17,6 +17,7 @@ from app.storage import ensure_bucket_exists
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     ensure_user_columns()
+    seed_default_cities()
     ensure_bucket_exists()
 
     db = SessionLocal()
@@ -47,6 +48,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router, prefix="/api")
+app.include_router(cities.router, prefix="/api")
 app.include_router(courts.router, prefix="/api")
 app.include_router(access_router.router, prefix="/api")
 app.include_router(devices.router, prefix="/api")

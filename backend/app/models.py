@@ -59,11 +59,26 @@ class User(Base):
     )
 
 
-class Court(Base):
-    __tablename__ = "courts"
+class City(Base):
+    __tablename__ = "cities"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(255), unique=True)
+    name: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    courts: Mapped[list["Court"]] = relationship(back_populates="city")
+
+
+class Court(Base):
+    __tablename__ = "courts"
+    __table_args__ = (UniqueConstraint("city_id", "name"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    city_id: Mapped[int | None] = mapped_column(ForeignKey("cities.id"), index=True, nullable=True)
+    name: Mapped[str] = mapped_column(String(255), index=True)
     address: Mapped[str | None] = mapped_column(Text, nullable=True)
     device_api_key: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -71,6 +86,7 @@ class Court(Base):
         DateTime(timezone=True), server_default=func.now()
     )
 
+    city: Mapped["City | None"] = relationship(back_populates="courts")
     devices: Mapped[list["Device"]] = relationship(back_populates="court")
     recordings: Mapped[list["Recording"]] = relationship(back_populates="court")
     access_requests: Mapped[list["CourtAccessRequest"]] = relationship(

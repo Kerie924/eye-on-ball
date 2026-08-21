@@ -9,13 +9,13 @@ from app.config import settings
 from app.constants import MAX_CAMERAS_PER_COURT, MIN_CAMERAS_PER_COURT
 from app.database import get_db
 from app.dependencies import (
-    athlete_can_view_recording,
     get_accessible_court_ids,
     get_court_by_device_key,
     get_current_user,
     get_current_user_from_bearer_or_query,
     require_admin,
     user_can_access_court,
+    user_can_view_recording,
 )
 from app.models import (
     CaptureTrigger,
@@ -179,12 +179,18 @@ async def upload_recording(
 @router.get("", response_model=list[RecordingResponse])
 def list_recordings(
     court_id: int | None = None,
+    started_at: datetime | None = None,
+    ended_at: datetime | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     now = datetime.now(timezone.utc)
-    accessible_court_ids = get_accessible_court_ids(current_user, db)
 
+    # Athletes/scouts only see clips after choosing a court (no dump of every video).
+    if current_user.role != UserRole.admin and court_id is None:
+        return []
+
+    accessible_court_ids = get_accessible_court_ids(current_user, db)
     if not accessible_court_ids:
         return []
 
@@ -203,13 +209,14 @@ def list_recordings(
             raise HTTPException(status_code=403, detail="Sem acesso a esta quadra")
         query = query.filter(Recording.court_id == court_id)
 
+    if started_at is not None:
+        start = started_at if started_at.tzinfo else started_at.replace(tzinfo=timezone.utc)
+        query = query.filter(Recording.triggered_at >= start)
+    if ended_at is not None:
+        end = ended_at if ended_at.tzinfo else ended_at.replace(tzinfo=timezone.utc)
+        query = query.filter(Recording.triggered_at < end)
+
     recordings = query.all()
-    if current_user.role == UserRole.athlete:
-        recordings = [
-            recording
-            for recording in recordings
-            if athlete_can_view_recording(current_user, recording, db)
-        ]
 
     return [
         RecordingResponse(
@@ -243,9 +250,7 @@ def get_recording(
     if not recording:
         raise HTTPException(status_code=404, detail="Gravacao nao encontrada")
 
-    if not user_can_access_court(current_user, recording.court_id, db):
-        raise HTTPException(status_code=403, detail="Sem acesso a esta gravacao")
-    if not athlete_can_view_recording(current_user, recording, db):
+    if not user_can_view_recording(current_user, recording, db):
         raise HTTPException(status_code=403, detail="Sem acesso a esta gravacao")
 
     return RecordingResponse(
@@ -278,9 +283,7 @@ def stream_recording(
     if not recording:
         raise HTTPException(status_code=404, detail="Gravacao nao encontrada")
 
-    if not user_can_access_court(current_user, recording.court_id, db):
-        raise HTTPException(status_code=403, detail="Sem acesso a esta gravacao")
-    if not athlete_can_view_recording(current_user, recording, db):
+    if not user_can_view_recording(current_user, recording, db):
         raise HTTPException(status_code=403, detail="Sem acesso a esta gravacao")
 
     client = get_s3_client()
@@ -328,9 +331,7 @@ def recording_download_link(
     if not recording:
         raise HTTPException(status_code=404, detail="Gravacao nao encontrada")
 
-    if not user_can_access_court(current_user, recording.court_id, db):
-        raise HTTPException(status_code=403, detail="Sem acesso a esta gravacao")
-    if not athlete_can_view_recording(current_user, recording, db):
+    if not user_can_view_recording(current_user, recording, db):
         raise HTTPException(status_code=403, detail="Sem acesso a esta gravacao")
 
     return {"url": generate_download_url(recording.file_key)}

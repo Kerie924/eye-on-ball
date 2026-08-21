@@ -66,6 +66,7 @@ class GoogleAuthRequest(BaseModel):
 
 class CourtCreate(BaseModel):
     name: str = Field(min_length=2, max_length=255)
+    city_id: int
     address: str | None = None
     camera_count: int = Field(
         default=2, ge=MIN_CAMERAS_PER_COURT, le=MAX_CAMERAS_PER_COURT
@@ -74,6 +75,7 @@ class CourtCreate(BaseModel):
 
 class CourtUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=2, max_length=255)
+    city_id: int | None = None
     address: str | None = None
     camera_count: int | None = Field(
         default=None, ge=MIN_CAMERAS_PER_COURT, le=MAX_CAMERAS_PER_COURT
@@ -83,10 +85,31 @@ class CourtUpdate(BaseModel):
 class CourtResponse(BaseModel):
     id: int
     name: str
+    city_id: int | None = None
+    city_name: str | None = None
     address: str | None
     is_active: bool
     created_at: datetime
     device_api_key: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class CityCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=255)
+
+
+class CityUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=255)
+    is_active: bool | None = None
+
+
+class CityResponse(BaseModel):
+    id: int
+    name: str
+    is_active: bool
+    created_at: datetime
+    court_count: int = 0
 
     model_config = {"from_attributes": True}
 

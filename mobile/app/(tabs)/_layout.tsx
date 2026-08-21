@@ -88,7 +88,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="courts"
         options={{
-          title: 'Quadras',
+          title: 'Cidades',
           headerShown: false,
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="football" size={size} color={color} />

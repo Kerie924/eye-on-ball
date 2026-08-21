@@ -1,6 +1,7 @@
 import type {
   ActivityItem,
   AdminStats,
+  City,
   Court,
   CourtAccessRequest,
   Device,
@@ -131,24 +132,56 @@ export const api = {
     })
   },
 
-  courts() {
-    return request<Court[]>('/api/courts')
+  courts(cityId?: number) {
+    const query = cityId ? `?city_id=${cityId}` : ''
+    return request<Court[]>(`/api/courts${query}`)
   },
 
-  createCourt(name: string, address: string, cameraCount = 2) {
+  cities(includeInactive = false) {
+    const query = includeInactive ? '?include_inactive=true' : ''
+    return request<City[]>(`/api/cities${query}`)
+  },
+
+  createCity(name: string) {
+    return request<City>('/api/cities', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    })
+  },
+
+  updateCity(cityId: number, payload: { name?: string; is_active?: boolean }) {
+    return request<City>(`/api/cities/${cityId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
+  },
+
+  deactivateCity(cityId: number) {
+    return request<MessageResponse>(`/api/cities/${cityId}`, {
+      method: 'DELETE',
+    })
+  },
+
+  createCourt(name: string, address: string, cameraCount = 2, cityId: number) {
     return request<Court>('/api/courts', {
       method: 'POST',
       body: JSON.stringify({
         name,
         address: address || null,
         camera_count: cameraCount,
+        city_id: cityId,
       }),
     })
   },
 
   updateCourt(
     courtId: number,
-    payload: { name?: string; address?: string | null; camera_count?: number },
+    payload: {
+      name?: string
+      address?: string | null
+      camera_count?: number
+      city_id?: number
+    },
   ) {
     return request<Court>(`/api/courts/${courtId}`, {
       method: 'PATCH',

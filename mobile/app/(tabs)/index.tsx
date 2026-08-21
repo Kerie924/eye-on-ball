@@ -1,162 +1,104 @@
 import { Ionicons } from '@expo/vector-icons'
 import { router, useFocusEffect } from 'expo-router'
 import { useCallback, useState } from 'react'
-import {
-  FlatList,
-  Pressable,
-  RefreshControl,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native'
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { api } from '@/src/api/client'
 import { useAuth } from '@/src/auth/AuthContext'
 import { AppBrandHeader } from '@/src/components/AppBrandHeader'
-import { EmptyState } from '@/src/components/EmptyState'
-import { LoadingState } from '@/src/components/LoadingState'
-import { RecordingCard } from '@/src/components/RecordingCard'
 import { colors } from '@/src/theme/colors'
-import type { CourtAccess, Recording } from '@/src/types'
+import type { City } from '@/src/types'
 
 export default function HomeScreen() {
   const { user } = useAuth()
-  const [recordings, setRecordings] = useState<Recording[]>([])
-  const [accesses, setAccesses] = useState<CourtAccess[]>([])
-  const [loading, setLoading] = useState(true)
+  const [cityCount, setCityCount] = useState(0)
   const [refreshing, setRefreshing] = useState(false)
 
-  const load = useCallback(async (isRefresh = false) => {
-    if (isRefresh) setRefreshing(true)
-    else setLoading(true)
-
+  const load = useCallback(async () => {
     try {
-      const [recs, accessList] = await Promise.all([
-        api.recordings(),
-        api.myCourtAccess().catch(() => [] as CourtAccess[]),
-      ])
-      setRecordings(recs.slice(0, 8))
-      setAccesses(accessList)
-    } finally {
-      setLoading(false)
-      setRefreshing(false)
+      const cities = await api.cities()
+      setCityCount(cities.length)
+    } catch {
+      setCityCount(0)
     }
   }, [])
 
   useFocusEffect(
     useCallback(() => {
-      load()
+      void load()
     }, [load]),
   )
 
-  function openCourtVideos(courtId: number, courtName?: string | null) {
-    router.push({
-      pathname: '/(tabs)/recordings',
-      params: {
-        courtId: String(courtId),
-        ...(courtName ? { courtName } : {}),
-      },
-    })
-  }
-
-  if (loading) {
-    return <LoadingState message="Carregando inicio..." />
-  }
-
   const firstName = user?.full_name?.split(' ')[0] ?? 'Atleta'
-  const primaryAccess = accesses[0]
-  const primaryCourt = primaryAccess?.court
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <AppBrandHeader />
-      <FlatList
+      <ScrollView
         contentContainerStyle={styles.content}
-        data={recordings}
-        keyExtractor={(item) => String(item.id)}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={() => load(true)}
+            onRefresh={async () => {
+              setRefreshing(true)
+              await load()
+              setRefreshing(false)
+            }}
             tintColor={colors.grass}
           />
         }
-        ListHeaderComponent={
-          <View style={styles.headerBlock}>
-            <View style={styles.greetingRow}>
-              <View>
-                <Text style={styles.greeting}>Ola, {firstName}!</Text>
-                <Text style={styles.greetingSub}>Seus lances estao aqui</Text>
-              </View>
-              <Pressable
-                style={styles.avatar}
-                onPress={() => router.push('/(tabs)/profile')}
-              >
-                <Text style={styles.avatarText}>
-                  {user?.full_name?.slice(0, 1).toUpperCase() ?? '?'}
-                </Text>
-              </Pressable>
-            </View>
-
-            {primaryCourt && primaryAccess ? (
-              <Pressable
-                style={({ pressed }) => [styles.courtCard, pressed && styles.pressed]}
-                onPress={() => openCourtVideos(primaryAccess.court_id, primaryCourt.name)}
-              >
-                <View style={styles.courtIcon}>
-                  <Ionicons name="football" size={22} color={colors.grass} />
-                </View>
-                <View style={styles.courtBody}>
-                  <Text style={styles.courtLabel}>Quadra atual</Text>
-                  <Text style={styles.courtName}>{primaryCourt.name}</Text>
-                  {primaryCourt.address ? (
-                    <Text style={styles.courtMeta}>{primaryCourt.address}</Text>
-                  ) : null}
-                  <Text style={styles.courtAction}>Toque para ver os videos</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-              </Pressable>
-            ) : (
-              <Pressable
-                style={styles.courtCard}
-                onPress={() => router.push('/(tabs)/courts')}
-              >
-                <View style={styles.courtIcon}>
-                  <Ionicons name="add-circle" size={22} color={colors.grass} />
-                </View>
-                <View style={styles.courtBody}>
-                  <Text style={styles.courtName}>Solicitar acesso</Text>
-                  <Text style={styles.courtMeta}>
-                    Escolha uma quadra para ver os lances
-                  </Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-              </Pressable>
-            )}
-
-            <View style={styles.sectionRow}>
-              <Text style={styles.sectionTitle}>Ultimas gravacoes</Text>
-              <Pressable onPress={() => router.push('/(tabs)/recordings')}>
-                <Text style={styles.sectionLink}>Ver todas</Text>
-              </Pressable>
-            </View>
+      >
+        <View style={styles.greetingRow}>
+          <View>
+            <Text style={styles.greeting}>Ola, {firstName}!</Text>
+            <Text style={styles.greetingSub}>Encontre seus lances por cidade e horario</Text>
           </View>
-        }
-        ListEmptyComponent={
-          <EmptyState
-            title="Nenhuma gravacao ainda"
-            description="Quando o botao fisico for pressionado, o lance aparece aqui."
-          />
-        }
-        renderItem={({ item }) => (
-          <RecordingCard
-            recording={item}
-            onPress={() => router.push(`/recording/${item.id}`)}
-          />
-        )}
-        ItemSeparatorComponent={() => <View style={styles.separator} />}
-      />
+          <Pressable style={styles.avatar} onPress={() => router.push('/(tabs)/profile')}>
+            <Text style={styles.avatarText}>
+              {user?.full_name?.slice(0, 1).toUpperCase() ?? '?'}
+            </Text>
+          </Pressable>
+        </View>
+
+        <Pressable
+          style={({ pressed }) => [styles.hero, pressed && styles.pressed]}
+          onPress={() => router.push('/(tabs)/courts')}
+        >
+          <View style={styles.heroIcon}>
+            <Ionicons name="football" size={26} color={colors.grass} />
+          </View>
+          <View style={styles.heroBody}>
+            <Text style={styles.heroTitle}>Ver videos</Text>
+            <Text style={styles.heroMeta}>
+              Cidade, quadra, data e horario — so os lances do seu jogo.
+            </Text>
+            {cityCount > 0 ? (
+              <Text style={styles.heroHint}>
+                {cityCount} {cityCount === 1 ? 'cidade disponivel' : 'cidades disponiveis'}
+              </Text>
+            ) : null}
+          </View>
+          <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+        </Pressable>
+
+        <View style={styles.steps}>
+          <Text style={styles.stepsTitle}>Como funciona</Text>
+          {[
+            'Escolha a cidade',
+            'Escolha a quadra',
+            'Escolha a data no calendario',
+            'Escolha o horario (ex: 19:00 – 20:00)',
+          ].map((label, index) => (
+            <View key={label} style={styles.stepRow}>
+              <View style={styles.stepNum}>
+                <Text style={styles.stepNumText}>{index + 1}</Text>
+              </View>
+              <Text style={styles.stepText}>{label}</Text>
+            </View>
+          ))}
+        </View>
+      </ScrollView>
     </SafeAreaView>
   )
 }
@@ -168,13 +110,8 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 20,
-    flexGrow: 1,
-    gap: 12,
-    paddingBottom: 32,
-  },
-  headerBlock: {
-    gap: 16,
-    marginBottom: 4,
+    gap: 20,
+    paddingBottom: 40,
   },
   greetingRow: {
     flexDirection: 'row',
@@ -189,6 +126,7 @@ const styles = StyleSheet.create({
   greetingSub: {
     color: colors.textSecondary,
     marginTop: 2,
+    maxWidth: 240,
   },
   avatar: {
     width: 44,
@@ -205,7 +143,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     fontSize: 18,
   },
-  courtCard: {
+  hero: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
@@ -219,55 +157,62 @@ const styles = StyleSheet.create({
     opacity: 0.92,
     borderColor: colors.grass,
   },
-  courtIcon: {
-    width: 44,
-    height: 44,
+  heroIcon: {
+    width: 48,
+    height: 48,
     borderRadius: 12,
     backgroundColor: 'rgba(34,197,94,0.15)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  courtBody: {
+  heroBody: {
     flex: 1,
-    gap: 2,
+    gap: 4,
   },
-  courtLabel: {
-    color: colors.textMuted,
+  heroTitle: {
+    color: colors.white,
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  heroMeta: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  heroHint: {
+    color: colors.grassBright,
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '700',
+    marginTop: 2,
   },
-  courtName: {
+  steps: {
+    gap: 10,
+  },
+  stepsTitle: {
     color: colors.white,
     fontSize: 16,
     fontWeight: '700',
   },
-  courtMeta: {
-    color: colors.textSecondary,
-    fontSize: 13,
-  },
-  courtAction: {
-    marginTop: 4,
-    color: colors.grassBright,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  sectionRow: {
+  stepRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 4,
+    gap: 10,
   },
-  sectionTitle: {
-    color: colors.white,
-    fontSize: 18,
-    fontWeight: '700',
+  stepNum: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.grassDeep,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  sectionLink: {
-    color: colors.grass,
-    fontWeight: '700',
-    fontSize: 14,
+  stepNumText: {
+    color: colors.grassLight,
+    fontWeight: '800',
   },
-  separator: {
-    height: 12,
+  stepText: {
+    color: colors.textSecondary,
+    fontSize: 15,
   },
 })
+

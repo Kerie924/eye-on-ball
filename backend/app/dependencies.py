@@ -121,18 +121,17 @@ def user_can_access_court(user: User, court_id: int, db: Session) -> bool:
 
 
 def get_accessible_court_ids(user: User, db: Session) -> list[int]:
+    """Any logged-in user can browse active courts. Access requests come later."""
+    courts = db.query(Court.id).filter(Court.is_active.is_(True)).all()
+    return [court.id for court in courts]
+
+
+def user_can_view_recording(user: User, recording: Recording, db: Session) -> bool:
+    """Logged-in users can watch clips from active courts (no approval gate yet)."""
     if user.role == UserRole.admin:
-        courts = db.query(Court.id).filter(Court.is_active.is_(True)).all()
-        return [court.id for court in courts]
-
-    if user.role == UserRole.scout:
-        if not user.is_approved:
-            return []
-        courts = db.query(Court.id).filter(Court.is_active.is_(True)).all()
-        return [court.id for court in courts]
-
-    accesses = db.query(CourtAccess.court_id).filter(CourtAccess.user_id == user.id).all()
-    return [access.court_id for access in accesses]
+        return True
+    court = getattr(recording, "court", None) or db.get(Court, recording.court_id)
+    return bool(court and court.is_active)
 
 
 def _as_utc(value: datetime) -> datetime:

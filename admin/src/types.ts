@@ -13,10 +13,20 @@ export interface User {
 export interface Court {
   id: number
   name: string
+  city_id?: number | null
+  city_name?: string | null
   address: string | null
   is_active: boolean
   created_at: string
   device_api_key?: string | null
+}
+
+export interface City {
+  id: number
+  name: string
+  is_active: boolean
+  created_at: string
+  court_count: number
 }
 
 export interface Device {

@@ -13,9 +13,19 @@ export interface User {
   created_at: string
 }
 
+export interface City {
+  id: number
+  name: string
+  is_active: boolean
+  created_at: string
+  court_count: number
+}
+
 export interface Court {
   id: number
   name: string
+  city_id?: number | null
+  city_name?: string | null
   address: string | null
   is_active: boolean
   created_at: string
