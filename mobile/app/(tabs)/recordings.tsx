@@ -15,7 +15,7 @@ import { LoadingState } from '@/src/components/LoadingState'
 import { RecordingCard } from '@/src/components/RecordingCard'
 import { colors } from '@/src/theme/colors'
 import type { Recording } from '@/src/types'
-import { brazilEndIso, brazilStartIso, formatLongDate } from '@/src/utils/timeSlots'
+import { formatLongDate } from '@/src/utils/timeSlots'
 
 function firstParam(value?: string | string[]) {
   const raw = Array.isArray(value) ? value[0] : value
@@ -46,6 +46,7 @@ export default function RecordingsScreen() {
   const [recordings, setRecordings] = useState<Recording[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [error, setError] = useState('')
 
   const load = useCallback(
     async (isRefresh = false) => {
@@ -57,13 +58,13 @@ export default function RecordingsScreen() {
       }
       if (isRefresh) setRefreshing(true)
       else setLoading(true)
+      setError('')
       try {
-        const data = await api.recordings(
-          courtId,
-          brazilStartIso(date, startTime),
-          brazilEndIso(date, endTime),
-        )
+        const data = await api.recordings(courtId, date, startTime, endTime)
         setRecordings(data)
+      } catch (err) {
+        setRecordings([])
+        setError(err instanceof Error ? err.message : 'Nao foi possivel carregar os videos')
       } finally {
         setLoading(false)
         setRefreshing(false)
@@ -126,8 +127,11 @@ export default function RecordingsScreen() {
         }
         ListEmptyComponent={
           <EmptyState
-            title="Nenhum video neste horario"
-            description="Nao ha lances desta quadra neste bloco. Tente outro horario ou outra data."
+            title={error ? 'Erro ao carregar' : 'Nenhum video neste horario'}
+            description={
+              error ||
+              'Nao ha lances desta quadra neste bloco. Tente outro horario ou outra data.'
+            }
           />
         }
         renderItem={({ item }) => (

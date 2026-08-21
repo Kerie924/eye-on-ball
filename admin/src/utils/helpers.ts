@@ -11,7 +11,7 @@ export function downloadCsv(filename: string, headers: string[], rows: string[][
 }
 
 export function formatDateTime(value: string) {
-  return new Date(value).toLocaleString('pt-BR')
+  return new Date(value).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })
 }
 
 export function formatDuration(seconds: number) {

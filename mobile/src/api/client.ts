@@ -141,11 +141,12 @@ export const api = {
     return request<City[]>('/api/cities')
   },
 
-  recordings(courtId?: number, startedAt?: string, endedAt?: string) {
+  recordings(courtId?: number, playDate?: string, startTime?: string, endTime?: string) {
     const params = new URLSearchParams()
     if (courtId) params.set('court_id', String(courtId))
-    if (startedAt) params.set('started_at', startedAt)
-    if (endedAt) params.set('ended_at', endedAt)
+    if (playDate) params.set('play_date', playDate)
+    if (startTime) params.set('start_time', startTime)
+    if (endTime) params.set('end_time', endTime)
     const query = params.toString() ? `?${params.toString()}` : ''
     return request<Recording[]>(`/api/recordings${query}`)
   },

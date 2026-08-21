@@ -1,5 +1,6 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
@@ -38,6 +39,30 @@ router = APIRouter(prefix="/recordings", tags=["recordings"])
 
 TRIGGER_COOLDOWN_SECONDS = 5
 DEVICE_ONLINE_WINDOW_SECONDS = 120
+BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+
+
+def _clock(value: str):
+    parts = value.strip().split(":")
+    hour = int(parts[0])
+    minute = int(parts[1]) if len(parts) > 1 else 0
+    return hour, minute
+
+
+def brazil_slot(play_date: date, start_time: str, end_time: str) -> tuple[datetime, datetime]:
+    start_h, start_m = _clock(start_time)
+    end_h, end_m = _clock(end_time)
+    start = datetime(
+        play_date.year, play_date.month, play_date.day, start_h, start_m, tzinfo=BRAZIL_TZ
+    )
+    if end_h == 0 and end_m == 0:
+        next_day = play_date + timedelta(days=1)
+        end = datetime(next_day.year, next_day.month, next_day.day, 0, 0, tzinfo=BRAZIL_TZ)
+    else:
+        end = datetime(
+            play_date.year, play_date.month, play_date.day, end_h, end_m, tzinfo=BRAZIL_TZ
+        )
+    return start, end
 
 
 @router.post("/trigger", response_model=CaptureTriggerResponse)
@@ -179,6 +204,9 @@ async def upload_recording(
 @router.get("", response_model=list[RecordingResponse])
 def list_recordings(
     court_id: int | None = None,
+    play_date: date | None = None,
+    start_time: str | None = None,
+    end_time: str | None = None,
     started_at: datetime | None = None,
     ended_at: datetime | None = None,
     db: Session = Depends(get_db),
@@ -209,11 +237,27 @@ def list_recordings(
             raise HTTPException(status_code=403, detail="Sem acesso a esta quadra")
         query = query.filter(Recording.court_id == court_id)
 
-    if started_at is not None:
-        start = started_at if started_at.tzinfo else started_at.replace(tzinfo=timezone.utc)
+    start = None
+    end = None
+    if play_date is not None and start_time and end_time:
+        start, end = brazil_slot(play_date, start_time, end_time)
+    else:
+        if started_at is not None:
+            start = (
+                started_at.astimezone(BRAZIL_TZ)
+                if started_at.tzinfo
+                else started_at.replace(tzinfo=BRAZIL_TZ)
+            )
+        if ended_at is not None:
+            end = (
+                ended_at.astimezone(BRAZIL_TZ)
+                if ended_at.tzinfo
+                else ended_at.replace(tzinfo=BRAZIL_TZ)
+            )
+
+    if start is not None:
         query = query.filter(Recording.triggered_at >= start)
-    if ended_at is not None:
-        end = ended_at if ended_at.tzinfo else ended_at.replace(tzinfo=timezone.utc)
+    if end is not None:
         query = query.filter(Recording.triggered_at < end)
 
     recordings = query.all()
