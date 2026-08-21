@@ -1,6 +1,5 @@
 import { Ionicons } from '@expo/vector-icons'
 import { Redirect, Tabs } from 'expo-router'
-import { StyleSheet, View } from 'react-native'
 
 import { useAuth } from '@/src/auth/AuthContext'
 import { BrandLogo } from '@/src/components/BrandLogo'
@@ -73,19 +72,6 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="record"
-        options={{
-          title: 'Gravar',
-          headerShown: false,
-          tabBarIcon: () => (
-            <View style={styles.recordBtn}>
-              <Ionicons name="radio-button-on" size={28} color={colors.textOnGreen} />
-            </View>
-          ),
-          tabBarLabel: () => null,
-        }}
-      />
-      <Tabs.Screen
         name="courts"
         options={{
           title: 'Cidades',
@@ -108,18 +94,3 @@ export default function TabLayout() {
     </Tabs>
   )
 }
-
-const styles = StyleSheet.create({
-  recordBtn: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: colors.grass,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 18,
-    borderWidth: 4,
-    borderColor: colors.blackSoft,
-    boxShadow: '0 0 16px rgba(34,197,94,0.45)',
-  },
-})

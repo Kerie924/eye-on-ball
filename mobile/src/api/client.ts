@@ -177,20 +177,4 @@ export const api = {
       }),
     })
   },
-
-  triggerCapture(courtId: number, cameraIndex?: number) {
-    return request<{
-      message: string
-      court_id: number
-      court_name: string
-      cameras: number[]
-      device_online: boolean
-    }>('/api/recordings/trigger', {
-      method: 'POST',
-      body: JSON.stringify({
-        court_id: courtId,
-        camera_index: cameraIndex ?? null,
-      }),
-    })
-  },
 }
