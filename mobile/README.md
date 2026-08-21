@@ -7,7 +7,7 @@ Cross-platform app (Android/iOS) for athletes and scouts to view and download co
 - Expo + React Native + TypeScript
 - expo-router (navigation)
 - expo-secure-store (JWT storage)
-- expo-av (video playback)
+- expo-video (video playback)
 - expo-file-system + expo-sharing (download/share)
 
 ## Features

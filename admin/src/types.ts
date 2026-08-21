@@ -33,6 +33,8 @@ export interface CourtAccessRequest {
   user_id: number
   court_id: number
   status: 'pending' | 'approved' | 'rejected'
+  play_started_at?: string | null
+  play_ended_at?: string | null
   created_at: string
   reviewed_at: string | null
   user?: User | null

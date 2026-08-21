@@ -104,6 +104,8 @@ class DeviceResponse(BaseModel):
 
 class CourtAccessRequestCreate(BaseModel):
     court_id: int
+    play_started_at: datetime
+    play_ended_at: datetime
 
 
 class CourtAccessRequestResponse(BaseModel):
@@ -111,6 +113,8 @@ class CourtAccessRequestResponse(BaseModel):
     user_id: int
     court_id: int
     status: AccessRequestStatus
+    play_started_at: datetime | None = None
+    play_ended_at: datetime | None = None
     created_at: datetime
     reviewed_at: datetime | None
     user: UserResponse | None = None

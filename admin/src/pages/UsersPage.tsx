@@ -225,14 +225,15 @@ export function UsersPage() {
                 <th>Atleta</th>
                 <th>E-mail</th>
                 <th>Quadra</th>
-                <th>Data</th>
+                <th>Horario do jogo</th>
+                <th>Solicitado em</th>
                 <th>Acoes</th>
               </tr>
             </thead>
             <tbody>
               {requestsPagination.pageItems.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="empty-cell">
+                  <td colSpan={6} className="empty-cell">
                     Nenhuma solicitacao pendente
                   </td>
                 </tr>
@@ -242,6 +243,17 @@ export function UsersPage() {
                     <td>{request.user?.full_name}</td>
                     <td>{request.user?.email}</td>
                     <td>{request.court?.name}</td>
+                    <td>
+                      {request.play_started_at && request.play_ended_at
+                        ? `${new Date(request.play_started_at).toLocaleString('pt-BR', {
+                            dateStyle: 'short',
+                            timeStyle: 'short',
+                          })} – ${new Date(request.play_ended_at).toLocaleTimeString('pt-BR', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}`
+                        : '—'}
+                    </td>
                     <td>{new Date(request.created_at).toLocaleDateString('pt-BR')}</td>
                     <td className="actions">
                       <button

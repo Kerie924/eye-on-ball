@@ -1,9 +1,17 @@
-import { ResizeMode, Video } from 'expo-av'
 import { cacheDirectory, downloadAsync } from 'expo-file-system/legacy'
 import * as Sharing from 'expo-sharing'
+import { useVideoPlayer, VideoView } from 'expo-video'
 import { useLocalSearchParams } from 'expo-router'
-import { useEffect, useMemo, useState } from 'react'
-import { ScrollView, StyleSheet, Text, View } from 'react-native'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native'
+import { Ionicons } from '@expo/vector-icons'
 
 import { ApiError, api, getAuthToken } from '@/src/api/client'
 import { Button } from '@/src/components/Button'
@@ -12,6 +20,38 @@ import { colors } from '@/src/theme/colors'
 import type { Recording } from '@/src/types'
 import { showMessage } from '@/src/utils/dialogs'
 import { formatDateTime, formatDuration, formatExpiresIn } from '@/src/utils/format'
+
+function RecordingPlayer({ uri }: { uri: string }) {
+  const videoRef = useRef<VideoView>(null)
+  const player = useVideoPlayer(uri, (instance) => {
+    instance.loop = false
+  })
+
+  return (
+    <View style={styles.playerWrap}>
+      <VideoView
+        ref={videoRef}
+        player={player}
+        style={styles.video}
+        contentFit="contain"
+        nativeControls
+        fullscreenOptions={{ enable: true }}
+        allowsPictureInPicture
+      />
+      {Platform.OS !== 'web' ? (
+        <Pressable
+          style={styles.fullscreenBtn}
+          onPress={() => {
+            void videoRef.current?.enterFullscreen()
+          }}
+        >
+          <Ionicons name="expand" size={18} color={colors.white} />
+          <Text style={styles.fullscreenBtnText}>Tela cheia</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  )
+}
 
 export default function RecordingDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
@@ -52,12 +92,11 @@ export default function RecordingDetailScreen() {
     const token = getAuthToken()
     const fileName = `lance-${recording.id}.mp4`
     const target = `${cacheDirectory}${fileName}`
-    const streamUrl = api.recordingStreamUrl(recording.id)
 
+    // Prefer query-token URL — more reliable than auth headers on some Android builds.
     if (token) {
-      const result = await downloadAsync(streamUrl, target, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
+      const url = `${api.recordingStreamUrl(recording.id)}?token=${encodeURIComponent(token)}&download=true`
+      const result = await downloadAsync(url, target)
       return result.uri
     }
 
@@ -78,12 +117,18 @@ export default function RecordingDetailScreen() {
         return
       }
       if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(uri)
+        await Sharing.shareAsync(uri, {
+          mimeType: 'video/mp4',
+          UTI: 'public.movie',
+        })
       } else {
         showMessage('Compartilhar', 'Compartilhamento nao disponivel neste dispositivo.')
       }
-    } catch {
-      showMessage('Erro', 'Nao foi possivel compartilhar o video.')
+    } catch (err) {
+      showMessage(
+        'Erro',
+        err instanceof Error ? err.message : 'Nao foi possivel compartilhar o video.',
+      )
     } finally {
       setSharing(false)
     }
@@ -103,11 +148,24 @@ export default function RecordingDetailScreen() {
           mimeType: 'video/mp4',
           UTI: 'public.movie',
         })
+        showMessage('Pronto', 'Escolha “Salvar” ou “Arquivos” para guardar o video.')
+      } else if (Platform.OS === 'web') {
+        // Web: open authenticated stream so the browser can save it.
+        const token = getAuthToken()
+        const url = token
+          ? `${api.recordingStreamUrl(recording!.id)}?token=${encodeURIComponent(token)}&download=true`
+          : recording!.download_url
+        if (url) {
+          window.open(url, '_blank')
+        }
       } else {
-        showMessage('Download concluido', `Arquivo salvo em ${uri}`)
+        showMessage('Download', `Arquivo salvo em cache: ${uri}`)
       }
-    } catch {
-      showMessage('Erro', 'Nao foi possivel baixar o video.')
+    } catch (err) {
+      showMessage(
+        'Erro',
+        err instanceof Error ? err.message : 'Nao foi possivel baixar o video.',
+      )
     } finally {
       setDownloading(false)
     }
@@ -128,13 +186,7 @@ export default function RecordingDetailScreen() {
   return (
     <ScrollView contentContainerStyle={styles.content} style={styles.root}>
       {mediaUrl ? (
-        <Video
-          style={styles.video}
-          source={{ uri: mediaUrl }}
-          useNativeControls
-          resizeMode={ResizeMode.CONTAIN}
-          shouldPlay={false}
-        />
+        <RecordingPlayer uri={mediaUrl} />
       ) : (
         <View style={styles.videoPlaceholder}>
           <Text style={styles.placeholderText}>Video indisponivel</Text>
@@ -184,11 +236,31 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: colors.black,
   },
+  playerWrap: {
+    gap: 8,
+  },
   video: {
     width: '100%',
     aspectRatio: 16 / 9,
     borderRadius: 14,
     backgroundColor: '#000',
+  },
+  fullscreenBtn: {
+    alignSelf: 'flex-end',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  fullscreenBtnText: {
+    color: colors.white,
+    fontSize: 13,
+    fontWeight: '700',
   },
   videoPlaceholder: {
     width: '100%',

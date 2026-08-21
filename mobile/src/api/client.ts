@@ -156,10 +156,14 @@ export const api = {
     return request<CourtAccessRequest[]>('/api/access-requests/mine')
   },
 
-  requestCourtAccess(courtId: number) {
+  requestCourtAccess(courtId: number, playStartedAt: string, playEndedAt: string) {
     return request<CourtAccessRequest>('/api/access-requests', {
       method: 'POST',
-      body: JSON.stringify({ court_id: courtId }),
+      body: JSON.stringify({
+        court_id: courtId,
+        play_started_at: playStartedAt,
+        play_ended_at: playEndedAt,
+      }),
     })
   },
 

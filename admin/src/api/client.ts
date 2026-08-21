@@ -217,6 +217,45 @@ export const api = {
       method: 'DELETE',
     })
   },
+
+  /** Authenticated stream URL (works even when S3 is private). */
+  recordingStreamUrl(recordingId: number, download = false) {
+    const token = getToken()
+    const params = new URLSearchParams()
+    if (token) params.set('token', token)
+    if (download) params.set('download', 'true')
+    const query = params.toString() ? `?${params.toString()}` : ''
+    return `${API_BASE}/api/recordings/${recordingId}/stream${query}`
+  },
+
+  async downloadRecordingFile(recordingId: number) {
+    const token = getToken()
+    const response = await fetch(
+      `${API_BASE}/api/recordings/${recordingId}/stream?download=true`,
+      {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      },
+    )
+    if (!response.ok) {
+      let message = 'Erro ao baixar video'
+      try {
+        const data = await response.json()
+        message = typeof data.detail === 'string' ? data.detail : message
+      } catch {
+        /* ignore */
+      }
+      throw new ApiError(response.status, message)
+    }
+    const blob = await response.blob()
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `lance-${recordingId}.mp4`
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    URL.revokeObjectURL(url)
+  },
 }
 
 export { ApiError }

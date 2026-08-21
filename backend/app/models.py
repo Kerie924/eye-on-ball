@@ -105,6 +105,13 @@ class CourtAccessRequest(Base):
     status: Mapped[AccessRequestStatus] = mapped_column(
         Enum(AccessRequestStatus), default=AccessRequestStatus.pending, index=True
     )
+    # Athlete play window — used to filter which clips they can see after approval
+    play_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    play_ended_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

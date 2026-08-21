@@ -155,26 +155,36 @@ export function RecordingsPage() {
                   </td>
                   <td>
                     <div className="icon-actions">
-                      {recording.download_url && (
-                        <a
-                          className="icon-btn"
-                          href={recording.download_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          title="Visualizar"
-                        >
-                          <Eye size={16} />
-                        </a>
-                      )}
-                      {recording.download_url && (
-                        <a
-                          className="icon-btn"
-                          href={recording.download_url}
-                          download
-                          title="Download"
-                        >
-                          <Download size={16} />
-                        </a>
+                      {recording.status !== 'expired' && (
+                        <>
+                          <a
+                            className="icon-btn"
+                            href={api.recordingStreamUrl(recording.id)}
+                            target="_blank"
+                            rel="noreferrer"
+                            title="Visualizar"
+                          >
+                            <Eye size={16} />
+                          </a>
+                          <button
+                            type="button"
+                            className="icon-btn"
+                            title="Download"
+                            onClick={async () => {
+                              try {
+                                await api.downloadRecordingFile(recording.id)
+                                showToast('Download iniciado', 'success')
+                              } catch (err) {
+                                showToast(
+                                  err instanceof Error ? err.message : 'Erro ao baixar',
+                                  'error',
+                                )
+                              }
+                            }}
+                          >
+                            <Download size={16} />
+                          </button>
+                        </>
                       )}
                       <button
                         type="button"

@@ -1,13 +1,18 @@
+from datetime import datetime, timedelta, timezone
+
 from fastapi import Depends, Header, HTTPException, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Court, CourtAccess, User, UserRole
+from app.models import AccessRequestStatus, Court, CourtAccess, CourtAccessRequest, Recording, User, UserRole
 from app.security import decode_access_token
 
 security_scheme = HTTPBearer()
 optional_security = HTTPBearer(auto_error=False)
+
+# Extra minutes around the requested play window (clip timing / late trigger)
+PLAY_WINDOW_PAD = timedelta(minutes=20)
 
 
 def _user_from_token(token: str, db: Session) -> User:
@@ -128,3 +133,40 @@ def get_accessible_court_ids(user: User, db: Session) -> list[int]:
 
     accesses = db.query(CourtAccess.court_id).filter(CourtAccess.user_id == user.id).all()
     return [access.court_id for access in accesses]
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def athlete_can_view_recording(user: User, recording: Recording, db: Session) -> bool:
+    """Athletes only see clips inside an approved play-time window for that court."""
+    if user.role != UserRole.athlete:
+        return user_can_access_court(user, recording.court_id, db)
+
+    if not user_can_access_court(user, recording.court_id, db):
+        return False
+
+    approved = (
+        db.query(CourtAccessRequest)
+        .filter(
+            CourtAccessRequest.user_id == user.id,
+            CourtAccessRequest.court_id == recording.court_id,
+            CourtAccessRequest.status == AccessRequestStatus.approved,
+        )
+        .all()
+    )
+    timed = [row for row in approved if row.play_started_at and row.play_ended_at]
+    if not timed:
+        # Legacy approvals without a play window → full court (within retention)
+        return True
+
+    triggered = _as_utc(recording.triggered_at)
+    for row in timed:
+        start = _as_utc(row.play_started_at) - PLAY_WINDOW_PAD
+        end = _as_utc(row.play_ended_at) + PLAY_WINDOW_PAD
+        if start <= triggered <= end:
+            return True
+    return False

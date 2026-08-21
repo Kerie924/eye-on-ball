@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
@@ -27,6 +27,14 @@ from app.schemas import (
 
 router = APIRouter(tags=["access"])
 
+MAX_PLAY_WINDOW = timedelta(hours=6)
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
 
 @router.post(
     "/access-requests",
@@ -42,18 +50,17 @@ def request_court_access(
     if not court or not court.is_active:
         raise HTTPException(status_code=404, detail="Quadra nao encontrada")
 
-    existing_access = (
-        db.query(CourtAccess)
-        .filter(
-            CourtAccess.user_id == current_user.id,
-            CourtAccess.court_id == payload.court_id,
-        )
-        .first()
-    )
-    if existing_access:
+    started = _as_utc(payload.play_started_at)
+    ended = _as_utc(payload.play_ended_at)
+    if ended <= started:
         raise HTTPException(
             status_code=400,
-            detail="Voce ja tem acesso a esta quadra",
+            detail="O horario final deve ser depois do horario inicial",
+        )
+    if ended - started > MAX_PLAY_WINDOW:
+        raise HTTPException(
+            status_code=400,
+            detail="O periodo de jogo pode ter no maximo 6 horas",
         )
 
     pending = (
@@ -74,6 +81,8 @@ def request_court_access(
     request = CourtAccessRequest(
         user_id=current_user.id,
         court_id=payload.court_id,
+        play_started_at=started,
+        play_ended_at=ended,
     )
     db.add(request)
     db.commit()
