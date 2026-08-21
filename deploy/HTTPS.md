@@ -67,13 +67,41 @@ sudo systemctl restart lanceon-api
 sudo systemctl reload nginx
 ```
 
-## 5. Update all clients
+## 5. Deploy the admin web panel (same domain)
+
+Nginx serves the React admin at the root of the domain and proxies `/api` to FastAPI.
+
+| URL | Serves |
+|-----|--------|
+| `https://lanceonpara.com.br` | Admin panel |
+| `https://lanceonpara.com.br/api/...` | API (same origin) |
+| `https://api.lanceonpara.com.br` | API for mobile + capture |
+
+On the EC2 instance, after `git pull`:
+
+```bash
+cd /var/www/html/eye-on-ball/deploy   # or /opt/lance-on/deploy
+sudo chmod +x install-admin.sh setup-https.sh
+sudo ./install-admin.sh
+sudo ./setup-https.sh lanceonpara.com.br you@email.com
+```
+
+Leave `VITE_API_URL` empty in production so the admin talks to `/api` on the same host.
+To rebuild after a code change:
+
+```bash
+cd /var/www/html/eye-on-ball/deploy
+sudo ./install-admin.sh
+sudo systemctl reload nginx
+```
+
+## 6. Update all clients
 
 | Client | Setting |
 |--------|---------|
-| Mobile `EXPO_PUBLIC_API_URL` | `https://api.lanceon.com.br` |
-| Admin `VITE_API_URL` | `https://api.lanceon.com.br` |
-| Pi `/etc/lance-on/config.yaml` `api_url` | `https://api.lanceon.com.br` |
+| Browser | `https://lanceonpara.com.br` |
+| Mobile `EXPO_PUBLIC_API_URL` | `https://api.lanceonpara.com.br` |
+| Pi `/etc/lance-on/config.yaml` `api_url` | `https://api.lanceonpara.com.br` |
 
 Then:
 

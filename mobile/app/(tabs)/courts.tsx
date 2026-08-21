@@ -59,6 +59,7 @@ export default function CourtsScreen() {
   const [requesting, setRequesting] = useState(false)
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
+  const [searchFocused, setSearchFocused] = useState(false)
 
   const [selectedCourt, setSelectedCourt] = useState<Court | null>(null)
   const [playDate, setPlayDate] = useState(todayLocalDate())
@@ -277,16 +278,25 @@ export default function CourtsScreen() {
                   ? 'Toque em uma quadra para ver os videos.'
                   : 'Sua conta de olheiro aguarda aprovacao do administrador.'}
             </Text>
-            <View style={styles.searchBox}>
-              <Ionicons name="search" size={18} color={colors.textMuted} />
+            <View style={[styles.searchBox, searchFocused && styles.searchBoxFocused]}>
+              <Ionicons
+                name="search"
+                size={18}
+                color={searchFocused ? colors.grass : colors.textMuted}
+              />
               <TextInput
                 style={styles.searchInput}
                 value={search}
                 onChangeText={setSearch}
+                onFocus={() => setSearchFocused(true)}
+                onBlur={() => setSearchFocused(false)}
                 placeholder="Buscar quadra por nome ou endereco"
                 placeholderTextColor={colors.textMuted}
                 autoCapitalize="none"
                 autoCorrect={false}
+                underlineColorAndroid="transparent"
+                selectionColor={colors.grass}
+                cursorColor={colors.grass}
               />
               {search ? (
                 <Pressable onPress={() => setSearch('')}>
@@ -463,11 +473,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
+  searchBoxFocused: {
+    borderColor: colors.grass,
+  },
   searchInput: {
     flex: 1,
     color: colors.white,
     fontSize: 15,
     padding: 0,
+    // Kill default browser/Android focus outline; green border is on the container.
+    outlineStyle: 'none' as const,
   },
   backRow: {
     flexDirection: 'row',
