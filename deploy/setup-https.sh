@@ -46,6 +46,7 @@ systemctl restart nginx
 
 echo "Requesting Let's Encrypt certificates for ${DOMAIN}, www, and api..."
 certbot --nginx \
+  --expand \
   -d "$DOMAIN" \
   -d "www.${DOMAIN}" \
   -d "api.${DOMAIN}" \

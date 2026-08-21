@@ -1,3 +1,24 @@
+export function matchesDateQuery(isoDate: string, query: string): boolean {
+  const term = query.trim().toLowerCase()
+  if (!term) return true
+
+  const date = new Date(isoDate)
+  if (Number.isNaN(date.getTime())) return false
+
+  const isoDay = date.toISOString().slice(0, 10)
+  const brDay = date.toLocaleDateString('pt-BR')
+  const formatted = formatDateTime(isoDate).toLowerCase()
+  const normalized = term.replaceAll('-', '/')
+
+  return (
+    formatted.includes(term) ||
+    isoDay.includes(term) ||
+    brDay.toLowerCase().includes(term) ||
+    brDay.includes(normalized) ||
+    isoDay.replaceAll('-', '/').includes(normalized)
+  )
+}
+
 export function formatDateTime(value: string): string {
   return new Intl.DateTimeFormat('pt-BR', {
     day: '2-digit',

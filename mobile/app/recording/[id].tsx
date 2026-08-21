@@ -1,4 +1,5 @@
-import { cacheDirectory, downloadAsync } from 'expo-file-system/legacy'
+import { Ionicons } from '@expo/vector-icons'
+import { File, Paths } from 'expo-file-system'
 import * as Sharing from 'expo-sharing'
 import { useVideoPlayer, VideoView } from 'expo-video'
 import { useLocalSearchParams } from 'expo-router'
@@ -11,7 +12,6 @@ import {
   Text,
   View,
 } from 'react-native'
-import { Ionicons } from '@expo/vector-icons'
 
 import { ApiError, api, getAuthToken } from '@/src/api/client'
 import { Button } from '@/src/components/Button'
@@ -53,6 +53,55 @@ function RecordingPlayer({ uri }: { uri: string }) {
   )
 }
 
+function streamUrl(recordingId: number, download = false) {
+  const token = getAuthToken()
+  const params = new URLSearchParams()
+  if (token) params.set('token', token)
+  if (download) params.set('download', 'true')
+  const query = params.toString()
+  return `${api.recordingStreamUrl(recordingId)}${query ? `?${query}` : ''}`
+}
+
+async function saveOnWeb(recording: Recording) {
+  const token = getAuthToken()
+  const url = streamUrl(recording.id, true) || recording.download_url
+  if (!url) {
+    throw new Error('Link de download nao encontrado.')
+  }
+
+  const response = await fetch(url, {
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  })
+  if (!response.ok) {
+    throw new Error('Nao foi possivel baixar o video.')
+  }
+
+  const blob = await response.blob()
+  const objectUrl = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = objectUrl
+  anchor.download = `lance-${recording.id}.mp4`
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(objectUrl)
+}
+
+async function saveOnDevice(recording: Recording): Promise<string> {
+  const token = getAuthToken()
+  const url = token ? streamUrl(recording.id, true) : recording.download_url
+  if (!url) {
+    throw new Error('Link de download nao encontrado.')
+  }
+
+  const dest = new File(Paths.cache, `lance-${recording.id}.mp4`)
+  const downloaded = await File.downloadFileAsync(url, dest, {
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    idempotent: true,
+  })
+  return downloaded.uri
+}
+
 export default function RecordingDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const [recording, setRecording] = useState<Recording | null>(null)
@@ -63,8 +112,9 @@ export default function RecordingDetailScreen() {
   const mediaUrl = useMemo(() => {
     if (!recording) return null
     const token = getAuthToken()
-    if (!token) return recording.download_url ?? null
-    return `${api.recordingStreamUrl(recording.id)}?token=${encodeURIComponent(token)}`
+    if (!token && recording.download_url) return recording.download_url
+    if (!token) return null
+    return streamUrl(recording.id)
   }, [recording])
 
   useEffect(() => {
@@ -85,37 +135,16 @@ export default function RecordingDetailScreen() {
     loadRecording()
   }, [id])
 
-  async function getLocalFile(): Promise<string | null> {
-    if (!recording || !cacheDirectory) {
-      return null
-    }
-    const token = getAuthToken()
-    const fileName = `lance-${recording.id}.mp4`
-    const target = `${cacheDirectory}${fileName}`
-
-    // Prefer query-token URL — more reliable than auth headers on some Android builds.
-    if (token) {
-      const url = `${api.recordingStreamUrl(recording.id)}?token=${encodeURIComponent(token)}&download=true`
-      const result = await downloadAsync(url, target)
-      return result.uri
-    }
-
-    if (recording.download_url) {
-      const result = await downloadAsync(recording.download_url, target)
-      return result.uri
-    }
-
-    return null
-  }
-
   async function handleShare() {
+    if (!recording) return
     setSharing(true)
     try {
-      const uri = await getLocalFile()
-      if (!uri) {
-        showMessage('Indisponivel', 'Link do video nao encontrado.')
+      if (Platform.OS === 'web') {
+        await saveOnWeb(recording)
+        showMessage('Pronto', 'O download do video foi iniciado.')
         return
       }
+      const uri = await saveOnDevice(recording)
       if (await Sharing.isAvailableAsync()) {
         await Sharing.shareAsync(uri, {
           mimeType: 'video/mp4',
@@ -135,13 +164,15 @@ export default function RecordingDetailScreen() {
   }
 
   async function handleDownload() {
+    if (!recording) return
     setDownloading(true)
     try {
-      const uri = await getLocalFile()
-      if (!uri) {
-        showMessage('Indisponivel', 'Link de download nao encontrado.')
+      if (Platform.OS === 'web') {
+        await saveOnWeb(recording)
+        showMessage('Pronto', 'O download do video foi iniciado.')
         return
       }
+      const uri = await saveOnDevice(recording)
       if (await Sharing.isAvailableAsync()) {
         await Sharing.shareAsync(uri, {
           dialogTitle: 'Salvar video',
@@ -149,17 +180,8 @@ export default function RecordingDetailScreen() {
           UTI: 'public.movie',
         })
         showMessage('Pronto', 'Escolha “Salvar” ou “Arquivos” para guardar o video.')
-      } else if (Platform.OS === 'web') {
-        // Web: open authenticated stream so the browser can save it.
-        const token = getAuthToken()
-        const url = token
-          ? `${api.recordingStreamUrl(recording!.id)}?token=${encodeURIComponent(token)}&download=true`
-          : recording!.download_url
-        if (url) {
-          window.open(url, '_blank')
-        }
       } else {
-        showMessage('Download', `Arquivo salvo em cache: ${uri}`)
+        showMessage('Download', 'Video salvo no cache do aplicativo.')
       }
     } catch (err) {
       showMessage(

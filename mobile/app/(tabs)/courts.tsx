@@ -3,6 +3,7 @@ import { router, useFocusEffect } from 'expo-router'
 import { useCallback, useMemo, useState } from 'react'
 import {
   FlatList,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -285,7 +286,10 @@ export default function CourtsScreen() {
                 color={searchFocused ? colors.grass : colors.textMuted}
               />
               <TextInput
-                style={styles.searchInput}
+                style={[
+                  styles.searchInput,
+                  Platform.OS === 'web' ? webNoOutline : null,
+                ]}
                 value={search}
                 onChangeText={setSearch}
                 onFocus={() => setSearchFocused(true)}
@@ -428,6 +432,8 @@ export default function CourtsScreen() {
   )
 }
 
+const webNoOutline = { outlineStyle: 'none' } as object
+
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
@@ -481,8 +487,6 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 15,
     padding: 0,
-    // Kill default browser/Android focus outline; green border is on the container.
-    outlineStyle: 'none' as const,
   },
   backRow: {
     flexDirection: 'row',
