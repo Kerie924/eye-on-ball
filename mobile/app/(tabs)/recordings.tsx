@@ -187,12 +187,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   content: {
-    padding: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 16,
     flexGrow: 1,
-    gap: 12,
+    alignItems: 'stretch',
   },
   separator: {
-    height: 12,
+    height: 16,
   },
   cta: {
     alignSelf: 'center',

@@ -1,6 +1,7 @@
-import { Ionicons } from '@expo/vector-icons'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
+import { useVideoPlayer, VideoView } from 'expo-video'
 
+import { api, getAuthToken } from '../api/client'
 import { colors } from '../theme/colors'
 import type { Recording } from '../types'
 import { formatDateTime, formatDuration, formatExpiresIn } from '../utils/format'
@@ -10,70 +11,93 @@ interface RecordingCardProps {
   onPress: () => void
 }
 
-export function RecordingCard({ recording, onPress }: RecordingCardProps) {
+function PreviewPlayer({ uri }: { uri: string }) {
+  const player = useVideoPlayer(uri, (instance) => {
+    instance.loop = false
+    instance.muted = true
+  })
+
   return (
-    <Pressable
-      style={({ pressed }) => [styles.card, pressed && styles.pressed]}
-      onPress={onPress}
-    >
-      <View style={styles.thumb}>
-        <Ionicons name="play" size={22} color={colors.white} />
-        <Text style={styles.duration}>{formatDuration(recording.duration_seconds)}</Text>
+    <VideoView
+      player={player}
+      style={styles.video}
+      contentFit="contain"
+      nativeControls
+    />
+  )
+}
+
+export function RecordingCard({ recording, onPress }: RecordingCardProps) {
+  const token = getAuthToken()
+  const previewUrl = token
+    ? `${api.recordingStreamUrl(recording.id)}?token=${encodeURIComponent(token)}`
+    : recording.download_url ?? null
+
+  return (
+    <View style={styles.card}>
+      <View style={styles.playerWrap}>
+        {previewUrl ? (
+          <PreviewPlayer uri={previewUrl} />
+        ) : (
+          <View style={styles.videoPlaceholder}>
+            <Text style={styles.placeholderText}>Video indisponivel</Text>
+          </View>
+        )}
       </View>
-      <View style={styles.body}>
+      <Pressable onPress={onPress} style={({ pressed }) => [styles.body, pressed && styles.pressed]}>
         <Text style={styles.title} numberOfLines={1}>
           {recording.court_name ?? `Quadra #${recording.court_id}`}
         </Text>
-        <Text style={styles.meta}>Camera {recording.camera_index}</Text>
+        <Text style={styles.meta}>
+          Camera {recording.camera_index} · {formatDuration(recording.duration_seconds)}
+        </Text>
         <Text style={styles.meta}>{formatDateTime(recording.triggered_at)}</Text>
         <Text style={styles.expires}>{formatExpiresIn(recording.expires_at)}</Text>
-      </View>
-      <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
-    </Pressable>
+        <Text style={styles.detailsLink}>Download e tela cheia</Text>
+      </Pressable>
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
   card: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
+    width: '100%',
+    alignSelf: 'center',
     backgroundColor: colors.card,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.cardBorder,
-    padding: 14,
-  },
-  pressed: {
-    opacity: 0.92,
-    borderColor: colors.grass,
-  },
-  thumb: {
-    width: 78,
-    height: 56,
-    borderRadius: 12,
-    backgroundColor: colors.grassDeep,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  duration: {
-    position: 'absolute',
-    right: 6,
-    bottom: 4,
-    fontSize: 10,
-    color: colors.white,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-    borderRadius: 4,
     overflow: 'hidden',
   },
+  playerWrap: {
+    width: '100%',
+    backgroundColor: '#000',
+  },
+  video: {
+    width: '100%',
+    aspectRatio: 16 / 9,
+    backgroundColor: '#000',
+  },
+  videoPlaceholder: {
+    width: '100%',
+    aspectRatio: 16 / 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.blackMuted,
+  },
+  placeholderText: {
+    color: colors.textMuted,
+  },
   body: {
-    flex: 1,
-    gap: 2,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 3,
+  },
+  pressed: {
+    opacity: 0.9,
   },
   title: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '700',
     color: colors.textPrimary,
   },
@@ -86,5 +110,11 @@ const styles = StyleSheet.create({
     color: colors.grassBright,
     fontWeight: '600',
     marginTop: 2,
+  },
+  detailsLink: {
+    marginTop: 6,
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.grassBright,
   },
 })

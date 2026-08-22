@@ -892,6 +892,23 @@ select {
   overflow: hidden;
 }
 
+.recording-preview {
+  display: block;
+  width: 200px;
+  height: 112px;
+  border-radius: 10px;
+  background: #000;
+  position: relative;
+  overflow: hidden;
+}
+
+.recording-preview video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  vertical-align: middle;
+}
+
 .recording-thumb-play {
   font-size: 0.8rem;
 }

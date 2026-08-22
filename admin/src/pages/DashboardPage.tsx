@@ -207,7 +207,10 @@ export function DashboardPage() {
                     <tr key={recording.id} className="table-row-interactive">
                       <td>#{recording.id}</td>
                       <td>
-                        <RecordingThumb duration={recording.duration_seconds} />
+                        <RecordingThumb
+                          duration={recording.duration_seconds}
+                          src={api.recordingStreamUrl(recording.id)}
+                        />
                       </td>
                       <td>{recording.court_name}</td>
                       <td>{formatDateTime(recording.triggered_at)}</td>

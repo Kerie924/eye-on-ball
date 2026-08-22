@@ -140,7 +140,14 @@ export function RecordingsPage() {
                 <tr key={recording.id} className="table-row-interactive">
                   <td>#{recording.id}</td>
                   <td>
-                    <RecordingThumb duration={recording.duration_seconds} />
+                    <RecordingThumb
+                      duration={recording.duration_seconds}
+                      src={
+                        recording.status !== 'expired'
+                          ? api.recordingStreamUrl(recording.id)
+                          : null
+                      }
+                    />
                   </td>
                   <td>{recording.court_name}</td>
                   <td>Camera {recording.camera_index}</td>

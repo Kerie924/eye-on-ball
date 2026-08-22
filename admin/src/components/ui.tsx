@@ -38,10 +38,25 @@ export function CourtThumb({ name }: { name: string }) {
   )
 }
 
-export function RecordingThumb({ duration }: { duration: number }) {
+export function RecordingThumb({
+  duration,
+  src,
+}: {
+  duration: number
+  src?: string | null
+}) {
   const mins = Math.floor(duration / 60)
   const secs = duration % 60
   const label = `${mins}:${secs.toString().padStart(2, '0')}`
+
+  if (src) {
+    return (
+      <span className="recording-preview">
+        <video src={src} controls preload="metadata" muted playsInline />
+        <span className="recording-thumb-duration">{label}</span>
+      </span>
+    )
+  }
 
   return (
     <span className="recording-thumb">
