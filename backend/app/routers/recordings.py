@@ -3,7 +3,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 
 from app.config import settings
@@ -33,7 +33,13 @@ from app.schemas import (
     MessageResponse,
     RecordingResponse,
 )
-from app.storage import delete_file, generate_download_url, get_s3_client, upload_file
+from app.storage import (
+    delete_file,
+    generate_download_url,
+    get_s3_client,
+    s3_downloads_are_public,
+    upload_file,
+)
 
 router = APIRouter(prefix="/recordings", tags=["recordings"])
 
@@ -320,6 +326,17 @@ def stream_recording(
 
     if not user_can_view_recording(current_user, recording, db):
         raise HTTPException(status_code=403, detail="Sem acesso a esta gravacao")
+
+    # Phones time out when the whole file is proxied through the API. Send
+    # downloads straight to S3 when the bucket is reachable from the internet.
+    if download and s3_downloads_are_public():
+        return RedirectResponse(
+            generate_download_url(
+                recording.file_key,
+                filename=f"lance-{recording.id}.mp4",
+            ),
+            status_code=302,
+        )
 
     client = get_s3_client()
     try:

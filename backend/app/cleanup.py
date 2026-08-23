@@ -18,9 +18,7 @@ def cleanup_expired_recordings() -> None:
                 delete_file(recording.file_key)
             except Exception:
                 pass
-            db.delete(recording)
-        if expired:
-            db.commit()
+            # Keep the database row so admin Gravacoes can list Expirado.
     finally:
         db.close()
 

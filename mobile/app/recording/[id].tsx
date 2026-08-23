@@ -87,19 +87,96 @@ async function saveOnWeb(recording: Recording) {
   URL.revokeObjectURL(objectUrl)
 }
 
+function isTimeoutError(err: unknown) {
+  const message = err instanceof Error ? err.message : String(err)
+  return /timeout|SocketTimeout/i.test(message)
+}
+
+function isPublicDownloadUrl(url: string | null | undefined): url is string {
+  if (!url) return false
+  try {
+    const host = new URL(url).hostname
+    if (host === 'localhost' || host === '127.0.0.1') return false
+    if (host.startsWith('192.168.') || host.startsWith('10.')) return false
+    return url.startsWith('http://') || url.startsWith('https://')
+  } catch {
+    return false
+  }
+}
+
+function downloadErrorMessage(err: unknown) {
+  if (isTimeoutError(err)) {
+    return 'A conexao caiu antes de terminar o download. Isso e comum em Wi-Fi lento. Tente de novo, de preferencia no 4G.'
+  }
+  return err instanceof Error ? err.message : 'Nao foi possivel baixar o video.'
+}
+
+async function downloadViaFetch(
+  url: string,
+  dest: File,
+  headers?: Record<string, string>,
+): Promise<string> {
+  const response = await fetch(url, { headers })
+  if (!response.ok) {
+    throw new Error('Nao foi possivel baixar o video.')
+  }
+  const buffer = await response.arrayBuffer()
+  dest.write(new Uint8Array(buffer))
+  return dest.uri
+}
+
+async function downloadToFile(
+  url: string,
+  dest: File,
+  headers?: Record<string, string>,
+): Promise<string> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      if (dest.exists) dest.delete()
+      const downloaded = await File.downloadFileAsync(url, dest, {
+        headers,
+        idempotent: true,
+      })
+      return downloaded.uri
+    } catch (err) {
+      if (!isTimeoutError(err) || attempt === 1) {
+        return downloadViaFetch(url, dest, headers)
+      }
+    }
+  }
+  return downloadViaFetch(url, dest, headers)
+}
+
 async function saveOnDevice(recording: Recording): Promise<string> {
   const token = getAuthToken()
-  const url = token ? streamUrl(recording.id, true) : recording.download_url
-  if (!url) {
+  const dest = new File(Paths.cache, `lance-${recording.id}.mp4`)
+  const stream = token ? streamUrl(recording.id, true) : null
+  const candidates: { url: string; headers?: Record<string, string> }[] = []
+
+  // Direct S3 is faster than proxying the file through the API (avoids Android timeouts).
+  if (isPublicDownloadUrl(recording.download_url)) {
+    candidates.push({ url: recording.download_url })
+  }
+  if (stream) {
+    candidates.push({
+      url: stream,
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    })
+  }
+
+  if (!candidates.length) {
     throw new Error('Link de download nao encontrado.')
   }
 
-  const dest = new File(Paths.cache, `lance-${recording.id}.mp4`)
-  const downloaded = await File.downloadFileAsync(url, dest, {
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-    idempotent: true,
-  })
-  return downloaded.uri
+  let lastError: unknown
+  for (const candidate of candidates) {
+    try {
+      return await downloadToFile(candidate.url, dest, candidate.headers)
+    } catch (err) {
+      lastError = err
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(downloadErrorMessage(lastError))
 }
 
 export default function RecordingDetailScreen() {
@@ -154,10 +231,7 @@ export default function RecordingDetailScreen() {
         showMessage('Compartilhar', 'Compartilhamento nao disponivel neste dispositivo.')
       }
     } catch (err) {
-      showMessage(
-        'Erro',
-        err instanceof Error ? err.message : 'Nao foi possivel compartilhar o video.',
-      )
+      showMessage('Erro', downloadErrorMessage(err))
     } finally {
       setSharing(false)
     }
@@ -184,10 +258,7 @@ export default function RecordingDetailScreen() {
         showMessage('Download', 'Video salvo no cache do aplicativo.')
       }
     } catch (err) {
-      showMessage(
-        'Erro',
-        err instanceof Error ? err.message : 'Nao foi possivel baixar o video.',
-      )
+      showMessage('Erro', downloadErrorMessage(err))
     } finally {
       setDownloading(false)
     }

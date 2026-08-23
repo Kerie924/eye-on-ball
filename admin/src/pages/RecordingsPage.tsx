@@ -179,7 +179,10 @@ export function RecordingsPage() {
                             title="Download"
                             onClick={async () => {
                               try {
-                                await api.downloadRecordingFile(recording.id)
+                                await api.downloadRecordingFile(
+                                  recording.id,
+                                  recording.download_url,
+                                )
                                 showToast('Download iniciado', 'success')
                               } catch (err) {
                                 showToast(

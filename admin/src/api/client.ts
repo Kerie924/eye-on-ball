@@ -261,7 +261,18 @@ export const api = {
     return `${API_BASE}/api/recordings/${recordingId}/stream${query}`
   },
 
-  async downloadRecordingFile(recordingId: number) {
+  async downloadRecordingFile(recordingId: number, downloadUrl?: string | null) {
+    if (downloadUrl) {
+      const anchor = document.createElement('a')
+      anchor.href = downloadUrl
+      anchor.download = `lance-${recordingId}.mp4`
+      anchor.rel = 'noreferrer'
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      return
+    }
+
     const token = getToken()
     const response = await fetch(
       `${API_BASE}/api/recordings/${recordingId}/stream?download=true`,
