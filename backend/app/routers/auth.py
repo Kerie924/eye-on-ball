@@ -6,13 +6,15 @@ from urllib.request import urlopen
 
 from jose import jwt
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.firebase_auth import identity_from_auth_payload, verify_firebase_id_token
+from app.google_app_page import google_app_html
 from app.models import User, UserRole
 from app.schemas import (
     ForgotPasswordRequest,
@@ -29,6 +31,11 @@ from app.schemas import (
 from app.security import create_access_token, hash_password, verify_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+@router.get("/google-app", response_class=HTMLResponse, include_in_schema=False)
+def google_app_sign_in(continue_url: str = Query(alias="continue")):
+    return google_app_html(continue_url)
 
 
 def _token_issuer(id_token: str) -> str:

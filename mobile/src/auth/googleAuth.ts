@@ -1,10 +1,14 @@
-import * as AuthSession from 'expo-auth-session'
-import * as Crypto from 'expo-crypto'
+import * as Linking from 'expo-linking'
 import * as WebBrowser from 'expo-web-browser'
-import { GoogleAuthProvider, signInWithCredential } from 'firebase/auth'
+import {
+  GoogleAuthProvider,
+  signInWithCredential,
+  signInWithPopup,
+} from 'firebase/auth'
 import { Platform } from 'react-native'
 
 import {
+  API_URL,
   FIREBASE_API_KEY,
   FIREBASE_PROJECT_ID,
   GOOGLE_WEB_CLIENT_ID,
@@ -36,8 +40,16 @@ function loadGoogleSignIn(): Promise<GoogleSignInModule> {
   return googleModulePromise
 }
 
+function isFirebaseCancelled(error: unknown): boolean {
+  const code =
+    typeof error === 'object' && error && 'code' in error
+      ? String((error as { code?: string }).code)
+      : ''
+  return code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request'
+}
+
 export async function isGoogleAuthCancelled(error: unknown): Promise<boolean> {
-  if (error instanceof GoogleAuthCancelledError) {
+  if (error instanceof GoogleAuthCancelledError || isFirebaseCancelled(error)) {
     return true
   }
   try {
@@ -65,14 +77,34 @@ function isNativeModuleMissing(error: unknown): boolean {
   return /native module|RNGoogleSignin|null is not an object|hasPlayServices/i.test(message)
 }
 
-async function googleIdTokenNative(): Promise<string> {
+async function isDeveloperError(error: unknown): Promise<boolean> {
+  try {
+    const { isErrorWithCode, statusCodes } = await loadGoogleSignIn()
+    return isErrorWithCode(error) && error.code === statusCodes.DEVELOPER_ERROR
+  } catch {
+    return false
+  }
+}
+
+function idTokenFromUrl(url: string): string | null {
+  const parsed = Linking.parse(url)
+  const token = parsed.queryParams?.id_token
+  if (typeof token === 'string' && token.length > 20) {
+    return token
+  }
+  return null
+}
+
+async function signInWithGoogleNative(): Promise<string> {
   const mod = await loadGoogleSignIn()
   configureGoogleSignIn(mod)
   await mod.GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true })
 
   const response = await mod.GoogleSignin.signIn()
   if (mod.isSuccessResponse(response) && response.data.idToken) {
-    return response.data.idToken
+    const credential = GoogleAuthProvider.credential(response.data.idToken)
+    const { user } = await signInWithCredential(getFirebaseAuth(), credential)
+    return user.getIdToken()
   }
   if (response.type === 'cancelled') {
     throw new GoogleAuthCancelledError()
@@ -80,69 +112,40 @@ async function googleIdTokenNative(): Promise<string> {
   throw new Error('Google nao retornou um token')
 }
 
-async function googleIdTokenBrowser(): Promise<string> {
-  const redirectUri = AuthSession.makeRedirectUri({
-    scheme: 'lanceon',
-    path: 'redirect',
-  })
-  const nonce = await Crypto.digestStringAsync(
-    Crypto.CryptoDigestAlgorithm.SHA256,
-    `${Date.now()}-${Math.random()}`,
-  )
-  const request = new AuthSession.AuthRequest({
-    clientId: GOOGLE_WEB_CLIENT_ID,
-    redirectUri,
-    responseType: AuthSession.ResponseType.IdToken,
-    scopes: ['openid', 'profile', 'email'],
-    extraParams: {
-      nonce,
-      prompt: 'select_account',
-    },
-    usePKCE: false,
-  })
-
-  const result = await request.promptAsync({
-    authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
-  })
-
-  if (result.type === 'cancel' || result.type === 'dismiss') {
-    throw new GoogleAuthCancelledError()
-  }
-  if (result.type !== 'success') {
-    throw new Error('Falha na autenticacao Google')
-  }
-
-  const idToken = (result.params as { id_token?: string } | undefined)?.id_token
-  if (!idToken) {
-    throw new Error('Google nao retornou um token')
-  }
-  return idToken
-}
-
-async function getGoogleIdToken(): Promise<string> {
-  if (Platform.OS === 'web') {
-    return googleIdTokenBrowser()
-  }
+async function signInWithGoogleWeb(): Promise<string> {
+  const provider = new GoogleAuthProvider()
+  provider.addScope('email')
+  provider.addScope('profile')
+  provider.setCustomParameters({ prompt: 'select_account' })
 
   try {
-    return await googleIdTokenNative()
+    const { user } = await signInWithPopup(getFirebaseAuth(), provider)
+    return user.getIdToken()
   } catch (error) {
-    if (await isGoogleAuthCancelled(error)) {
-      throw error instanceof GoogleAuthCancelledError
-        ? error
-        : new GoogleAuthCancelledError()
-    }
-    if (isNativeModuleMissing(error)) {
-      return googleIdTokenBrowser()
+    if (isFirebaseCancelled(error)) {
+      throw new GoogleAuthCancelledError()
     }
     throw error
   }
 }
 
-async function exchangeFirebaseIdToken(googleIdToken: string): Promise<string> {
-  const credential = GoogleAuthProvider.credential(googleIdToken)
-  const { user } = await signInWithCredential(getFirebaseAuth(), credential)
-  return user.getIdToken()
+async function signInWithGoogleHosted(): Promise<string> {
+  const redirectUrl = Linking.createURL('google-auth')
+  const authUrl = `${API_URL}/api/auth/google-app?continue=${encodeURIComponent(redirectUrl)}`
+  const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUrl)
+
+  if (result.type === 'cancel' || result.type === 'dismiss') {
+    throw new GoogleAuthCancelledError()
+  }
+  if (result.type !== 'success' || !('url' in result)) {
+    throw new Error('Falha na autenticacao Google')
+  }
+
+  const idToken = idTokenFromUrl(result.url)
+  if (!idToken) {
+    throw new Error('Google nao retornou um token')
+  }
+  return idToken
 }
 
 export async function signInWithGoogle(): Promise<string> {
@@ -152,8 +155,23 @@ export async function signInWithGoogle(): Promise<string> {
     )
   }
 
-  const googleIdToken = await getGoogleIdToken()
-  return exchangeFirebaseIdToken(googleIdToken)
+  if (Platform.OS === 'web') {
+    return signInWithGoogleWeb()
+  }
+
+  try {
+    return await signInWithGoogleNative()
+  } catch (error) {
+    if (await isGoogleAuthCancelled(error)) {
+      throw error instanceof GoogleAuthCancelledError
+        ? error
+        : new GoogleAuthCancelledError()
+    }
+    if (isNativeModuleMissing(error) || (await isDeveloperError(error))) {
+      return signInWithGoogleHosted()
+    }
+    throw error
+  }
 }
 
 export async function signOutGoogle(): Promise<void> {
