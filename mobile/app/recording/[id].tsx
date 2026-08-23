@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons'
 import { File, Paths } from 'expo-file-system'
 import * as Sharing from 'expo-sharing'
+import * as WebBrowser from 'expo-web-browser'
 import { useVideoPlayer, VideoView } from 'expo-video'
 import { useLocalSearchParams } from 'expo-router'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -8,6 +9,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   View,
@@ -221,15 +223,26 @@ export default function RecordingDetailScreen() {
         showMessage('Pronto', 'O download do video foi iniciado.')
         return
       }
-      const uri = await saveOnDevice(recording)
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(uri, {
-          mimeType: 'video/mp4',
-          UTI: 'public.movie',
-        })
-      } else {
-        showMessage('Compartilhar', 'Compartilhamento nao disponivel neste dispositivo.')
+      try {
+        const uri = await saveOnDevice(recording)
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(uri, {
+            mimeType: 'video/mp4',
+            UTI: 'public.movie',
+          })
+          return
+        }
+      } catch {
+        // Slow networks time out inside FileSystem; share the link instead.
       }
+      const url = isPublicDownloadUrl(recording.download_url)
+        ? recording.download_url
+        : api.recordingSaveUrl(recording.id)
+      await Share.share({
+        title: 'Lance On',
+        message: url,
+        url,
+      })
     } catch (err) {
       showMessage('Erro', downloadErrorMessage(err))
     } finally {
@@ -246,17 +259,9 @@ export default function RecordingDetailScreen() {
         showMessage('Pronto', 'O download do video foi iniciado.')
         return
       }
-      const uri = await saveOnDevice(recording)
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(uri, {
-          dialogTitle: 'Salvar video',
-          mimeType: 'video/mp4',
-          UTI: 'public.movie',
-        })
-        showMessage('Pronto', 'Escolha “Salvar” ou “Arquivos” para guardar o video.')
-      } else {
-        showMessage('Download', 'Video salvo no cache do aplicativo.')
-      }
+      // Android FileSystem times out on slow Wi-Fi. The system browser
+      // uses DownloadManager and does not have that limit.
+      await WebBrowser.openBrowserAsync(api.recordingSaveUrl(recording.id))
     } catch (err) {
       showMessage('Erro', downloadErrorMessage(err))
     } finally {

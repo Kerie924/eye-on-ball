@@ -3,7 +3,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile
-from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 
 from app.config import settings
@@ -33,6 +33,7 @@ from app.schemas import (
     MessageResponse,
     RecordingResponse,
 )
+from app.save_recording_page import save_recording_html
 from app.storage import (
     delete_file,
     generate_download_url,
@@ -269,7 +270,10 @@ def list_recordings(
             expires_at=recording.expires_at,
             created_at=recording.created_at,
             court_name=recording.court.name,
-            download_url=generate_download_url(recording.file_key),
+            download_url=generate_download_url(
+                recording.file_key,
+                filename=f"lance-{recording.id}.mp4",
+            ),
         )
         for recording in recordings
     ]
@@ -303,7 +307,38 @@ def get_recording(
         expires_at=recording.expires_at,
         created_at=recording.created_at,
         court_name=recording.court.name,
-        download_url=generate_download_url(recording.file_key),
+        download_url=generate_download_url(
+            recording.file_key,
+            filename=f"lance-{recording.id}.mp4",
+        ),
+    )
+
+
+@router.get("/{recording_id}/save", response_class=HTMLResponse, include_in_schema=False)
+def save_recording_page(
+    recording_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_from_bearer_or_query),
+):
+    """Browser page that starts a system download. Avoids Android FileSystem timeouts."""
+    now = datetime.now(timezone.utc)
+    recording = (
+        db.query(Recording)
+        .filter(Recording.id == recording_id, Recording.expires_at > now)
+        .first()
+    )
+    if not recording:
+        raise HTTPException(status_code=404, detail="Gravacao nao encontrada")
+
+    if not user_can_view_recording(current_user, recording, db):
+        raise HTTPException(status_code=403, detail="Sem acesso a esta gravacao")
+
+    return save_recording_html(
+        generate_download_url(
+            recording.file_key,
+            filename=f"lance-{recording.id}.mp4",
+        ),
+        recording.id,
     )
 
 
@@ -386,7 +421,12 @@ def recording_download_link(
     if not user_can_view_recording(current_user, recording, db):
         raise HTTPException(status_code=403, detail="Sem acesso a esta gravacao")
 
-    return {"url": generate_download_url(recording.file_key)}
+    return {
+        "url": generate_download_url(
+            recording.file_key,
+            filename=f"lance-{recording.id}.mp4",
+        )
+    }
 
 
 @router.delete("/{recording_id}", response_model=MessageResponse)

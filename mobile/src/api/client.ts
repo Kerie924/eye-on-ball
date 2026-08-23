@@ -159,6 +159,14 @@ export const api = {
     return `${API_URL}/api/recordings/${recordingId}/stream`
   },
 
+  recordingSaveUrl(recordingId: number) {
+    const token = getAuthToken()
+    const params = new URLSearchParams()
+    if (token) params.set('token', token)
+    const query = params.toString()
+    return `${API_URL}/api/recordings/${recordingId}/save${query ? `?${query}` : ''}`
+  },
+
   myCourtAccess() {
     return request<CourtAccess[]>('/api/access/mine')
   },
