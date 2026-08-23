@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "998054424238-k80q17ekf86rbkv67ov50o6916t9hik3.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.lanceon.app",
+            "certificate_hash": "3cbb1e079701ef0e516d3911488424a826db7cf6"
+          }
+        },
+        {
           "client_id": "998054424238-sv25tk7b05ijb59dpav2gkqrqr22dhn8.apps.googleusercontent.com",
           "client_type": 3
         }

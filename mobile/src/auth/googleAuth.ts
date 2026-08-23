@@ -1,10 +1,6 @@
 import * as Linking from 'expo-linking'
 import * as WebBrowser from 'expo-web-browser'
-import {
-  GoogleAuthProvider,
-  signInWithCredential,
-  signInWithPopup,
-} from 'firebase/auth'
+import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth'
 import { Platform } from 'react-native'
 
 import {
@@ -31,6 +27,22 @@ export class GoogleAuthCancelledError extends Error {
 
 export function isGoogleAuthConfigured(): boolean {
   return Boolean(GOOGLE_WEB_CLIENT_ID && FIREBASE_API_KEY && FIREBASE_PROJECT_ID)
+}
+
+export function describeAuthError(error: unknown, fallback: string): string {
+  if (error instanceof GoogleAuthCancelledError) {
+    return error.message
+  }
+  if (error instanceof Error && error.message.trim()) {
+    const code =
+      typeof error === 'object' && error && 'code' in error
+        ? String((error as { code?: string }).code || '')
+        : ''
+    return code && !error.message.includes(code)
+      ? `${error.message} (${code})`
+      : error.message
+  }
+  return fallback
 }
 
 function loadGoogleSignIn(): Promise<GoogleSignInModule> {
@@ -68,6 +80,7 @@ function configureGoogleSignIn(mod: GoogleSignInModule) {
   mod.GoogleSignin.configure({
     webClientId: GOOGLE_WEB_CLIENT_ID,
     offlineAccess: false,
+    scopes: ['openid', 'profile', 'email'],
   })
   googleConfigured = true
 }
@@ -77,10 +90,23 @@ function isNativeModuleMissing(error: unknown): boolean {
   return /native module|RNGoogleSignin|null is not an object|hasPlayServices/i.test(message)
 }
 
-async function isDeveloperError(error: unknown): Promise<boolean> {
+async function shouldUseHostedFallback(error: unknown): Promise<boolean> {
+  if (isNativeModuleMissing(error)) {
+    return true
+  }
+
+  const code =
+    typeof error === 'object' && error && 'code' in error
+      ? String((error as { code?: string }).code || '')
+      : ''
+  const message = error instanceof Error ? error.message : String(error)
+  if (/DEVELOPER_ERROR|\b10\b/i.test(`${code} ${message}`)) {
+    return true
+  }
+
   try {
     const { isErrorWithCode, statusCodes } = await loadGoogleSignIn()
-    return isErrorWithCode(error) && error.code === statusCodes.DEVELOPER_ERROR
+    return isErrorWithCode(error) && error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE
   } catch {
     return false
   }
@@ -101,15 +127,25 @@ async function signInWithGoogleNative(): Promise<string> {
   await mod.GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true })
 
   const response = await mod.GoogleSignin.signIn()
-  if (mod.isSuccessResponse(response) && response.data.idToken) {
-    const credential = GoogleAuthProvider.credential(response.data.idToken)
-    const { user } = await signInWithCredential(getFirebaseAuth(), credential)
-    return user.getIdToken()
-  }
   if (response.type === 'cancelled') {
     throw new GoogleAuthCancelledError()
   }
-  throw new Error('Google nao retornou um token')
+  if (!mod.isSuccessResponse(response)) {
+    throw new Error('Falha na autenticacao Google')
+  }
+
+  let idToken = response.data.idToken
+  if (!idToken) {
+    const tokens = await mod.GoogleSignin.getTokens()
+    idToken = tokens.idToken
+  }
+  if (!idToken) {
+    throw new Error('Google nao retornou um token. Verifique o Web client ID do Firebase.')
+  }
+
+  // The API accepts Google ID tokens directly. Skipping Firebase JS here avoids
+  // auth/invalid-credential failures on standalone Android builds.
+  return idToken
 }
 
 async function signInWithGoogleWeb(): Promise<string> {
@@ -138,12 +174,12 @@ async function signInWithGoogleHosted(): Promise<string> {
     throw new GoogleAuthCancelledError()
   }
   if (result.type !== 'success' || !('url' in result)) {
-    throw new Error('Falha na autenticacao Google')
+    throw new Error('Falha na autenticacao Google no navegador')
   }
 
   const idToken = idTokenFromUrl(result.url)
   if (!idToken) {
-    throw new Error('Google nao retornou um token')
+    throw new Error('Google nao retornou um token para o app')
   }
   return idToken
 }
@@ -167,7 +203,7 @@ export async function signInWithGoogle(): Promise<string> {
         ? error
         : new GoogleAuthCancelledError()
     }
-    if (isNativeModuleMissing(error) || (await isDeveloperError(error))) {
+    if (await shouldUseHostedFallback(error)) {
       return signInWithGoogleHosted()
     }
     throw error

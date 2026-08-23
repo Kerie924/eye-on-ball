@@ -71,36 +71,59 @@ def google_app_html(continue_url: str) -> HTMLResponse:
     const FIREBASE_CONFIG = {dumps(firebase_config)};
     const statusEl = document.getElementById("status");
 
+    const useRedirect = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
+
     function returnToApp(idToken) {{
-      const sep = CONTINUE_URL.includes("?") ? "&" : "?";
-      window.location.replace(CONTINUE_URL + sep + "id_token=" + encodeURIComponent(idToken));
+      const continueUrl = sessionStorage.getItem("lanceonContinue") || CONTINUE_URL;
+      const sep = continueUrl.includes("?") ? "&" : "?";
+      window.location.replace(continueUrl + sep + "id_token=" + encodeURIComponent(idToken));
+    }}
+
+    function showError(error) {{
+      const code = error && error.code ? String(error.code) : "";
+      if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {{
+        statusEl.textContent = "Login cancelado.";
+        return;
+      }}
+      if (code === "auth/unauthorized-domain") {{
+        statusEl.className = "error";
+        statusEl.textContent =
+          "Adicione api.lanceonpara.com.br em Firebase Authentication → Settings → Authorized domains.";
+        return;
+      }}
+      statusEl.className = "error";
+      statusEl.textContent = (error && error.message) || "Falha no login Google";
+    }}
+
+    function createProvider() {{
+      const provider = new firebase.auth.GoogleAuthProvider();
+      provider.addScope("email");
+      provider.addScope("profile");
+      provider.setCustomParameters({{ prompt: "select_account" }});
+      return provider;
     }}
 
     async function start() {{
       try {{
         firebase.initializeApp(FIREBASE_CONFIG);
-        const provider = new firebase.auth.GoogleAuthProvider();
-        provider.addScope("email");
-        provider.addScope("profile");
-        provider.setCustomParameters({{ prompt: "select_account" }});
-        const result = await firebase.auth().signInWithPopup(provider);
+        sessionStorage.setItem("lanceonContinue", CONTINUE_URL);
+        const redirectResult = await firebase.auth().getRedirectResult();
+        if (redirectResult && redirectResult.user) {{
+          const idToken = await redirectResult.user.getIdToken();
+          statusEl.textContent = "Voltando para o app...";
+          returnToApp(idToken);
+          return;
+        }}
+        if (useRedirect) {{
+          await firebase.auth().signInWithRedirect(createProvider());
+          return;
+        }}
+        const result = await firebase.auth().signInWithPopup(createProvider());
         const idToken = await result.user.getIdToken();
         statusEl.textContent = "Voltando para o app...";
         returnToApp(idToken);
       }} catch (error) {{
-        const code = error && error.code ? String(error.code) : "";
-        if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {{
-          statusEl.textContent = "Login cancelado.";
-          return;
-        }}
-        if (code === "auth/unauthorized-domain") {{
-          statusEl.className = "error";
-          statusEl.textContent =
-            "Adicione api.lanceonpara.com.br em Firebase Authentication → Settings → Authorized domains.";
-          return;
-        }}
-        statusEl.className = "error";
-        statusEl.textContent = (error && error.message) || "Falha no login Google";
+        showError(error);
       }}
     }}
 

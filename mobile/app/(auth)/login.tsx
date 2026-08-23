@@ -14,6 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import { ApiError } from '@/src/api/client'
 import { useAuth } from '@/src/auth/AuthContext'
 import {
+  describeAuthError,
   isGoogleAuthCancelled,
   isGoogleAuthConfigured,
   signInWithGoogle,
@@ -59,7 +60,7 @@ export default function LoginScreen() {
       router.replace('/(tabs)')
     } catch (err) {
       if (!(await isGoogleAuthCancelled(err))) {
-        setError(err instanceof ApiError ? err.message : 'Falha no login Google')
+        setError(describeAuthError(err, 'Falha no login Google'))
       }
     } finally {
       setGoogleLoading(false)

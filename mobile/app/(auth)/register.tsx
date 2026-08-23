@@ -14,6 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import { ApiError } from '@/src/api/client'
 import { useAuth } from '@/src/auth/AuthContext'
 import {
+  describeAuthError,
   isGoogleAuthCancelled,
   isGoogleAuthConfigured,
   signInWithGoogle,
@@ -67,7 +68,7 @@ export default function RegisterScreen() {
       router.replace('/(tabs)')
     } catch (err) {
       if (!(await isGoogleAuthCancelled(err))) {
-        setError(err instanceof ApiError ? err.message : 'Falha no cadastro Google')
+        setError(describeAuthError(err, 'Falha no cadastro Google'))
       }
     } finally {
       setGoogleLoading(false)
