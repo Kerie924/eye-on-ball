@@ -233,6 +233,12 @@ def update_me(
 
 @router.post("/forgot-password", response_model=ForgotPasswordResponse)
 def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    if not email_configured():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="E-mail de redefinicao nao configurado no servidor. Defina SMTP_HOST no .env da API.",
+        )
+
     message = "Se o e-mail existir, voce recebera um link para redefinir a senha."
     user = db.query(User).filter(User.email == payload.email).first()
 
@@ -248,15 +254,20 @@ def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db
     reset_url = f"{public_api}/api/auth/reset-password-app?token={raw_token}"
     app_url = f"lanceon://reset-password?token={raw_token}"
 
-    if email_configured():
-        try:
-            send_password_reset_email(user.email, reset_url, app_url)
-        except Exception:
-            logger.exception("Falha ao enviar e-mail de redefinicao de senha")
-    else:
-        logger.warning(
-            "Pedido de redefinicao de senha ignorado no envio: configure SMTP_HOST ou SES_FROM_EMAIL"
+    if not email_configured():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="E-mail de redefinicao nao configurado no servidor. Defina SMTP_HOST no .env da API.",
         )
+
+    try:
+        send_password_reset_email(user.email, reset_url, app_url)
+    except Exception:
+        logger.exception("Falha ao enviar e-mail de redefinicao de senha")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Nao foi possivel enviar o e-mail agora. Tente novamente em alguns minutos.",
+        ) from None
 
     return ForgotPasswordResponse(message=message)
 
