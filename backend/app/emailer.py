@@ -1,13 +1,54 @@
 import logging
+import os
 import re
 import smtplib
 import ssl
 from email.message import EmailMessage
 from email.utils import formataddr, parseaddr
+from pathlib import Path
 
 from app.config import settings
 
-logger = logging.getLogger(__name__)
+def _unquote_env(raw: str) -> str:
+    value = raw.strip().strip("\r")
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+        return value[1:-1]
+    return value
+
+
+def _raw_dotenv_value(key: str) -> str | None:
+    """Read a .env value without treating # as a comment (passwords may contain #)."""
+    candidates = []
+    env_file = os.getenv("ENV_FILE")
+    if env_file:
+        candidates.append(Path(env_file))
+    candidates.extend(
+        [
+            Path("/opt/lance-on/backend/.env"),
+            Path(".env"),
+        ]
+    )
+    seen: set[str] = set()
+    for path in candidates:
+        resolved = str(path.resolve()) if path.exists() else ""
+        if not path.is_file() or resolved in seen:
+            continue
+        seen.add(resolved)
+        for line in path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped.startswith("#") or "=" not in stripped:
+                continue
+            name, value = stripped.split("=", 1)
+            if name.strip() == key:
+                return _unquote_env(value)
+    return None
+
+
+def _smtp_password() -> str:
+    return (
+        _raw_dotenv_value("SMTP_PASSWORD")
+        or (settings.smtp_password or "")
+    ).strip()
 
 
 def email_configured() -> bool:
@@ -100,7 +141,7 @@ def _send_smtp(message: EmailMessage, mailbox: str) -> None:
             "535 e codigo de senha errada, nao e porta."
         )
     user = (settings.smtp_user or mailbox).strip().strip('"').strip("'")
-    password = (settings.smtp_password or "").strip().strip('"').strip("'")
+    password = _smtp_password()
     if not user or "@" not in user:
         raise RuntimeError("SMTP_USER deve ser o e-mail completo, ex: noreply@lanceonpara.com.br")
     if not password:
