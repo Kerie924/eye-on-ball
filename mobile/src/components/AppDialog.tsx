@@ -74,7 +74,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(5, 8, 14, 0.72)',
   },
   backdrop: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
   },
   card: {
     backgroundColor: colors.blackSoft,

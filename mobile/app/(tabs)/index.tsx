@@ -8,7 +8,6 @@ import { api } from '@/src/api/client'
 import { useAuth } from '@/src/auth/AuthContext'
 import { AppBrandHeader } from '@/src/components/AppBrandHeader'
 import { colors } from '@/src/theme/colors'
-import type { City } from '@/src/types'
 
 export default function HomeScreen() {
   const { user } = useAuth()
