@@ -81,23 +81,6 @@ export default function HomeScreen() {
           </View>
           <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
         </Pressable>
-
-        <View style={styles.steps}>
-          <Text style={styles.stepsTitle}>Como funciona</Text>
-          {[
-            'Escolha a cidade',
-            'Escolha a quadra',
-            'Escolha a data no calendario',
-            'Escolha o horario (ex: 19:00 – 20:00)',
-          ].map((label, index) => (
-            <View key={label} style={styles.stepRow}>
-              <View style={styles.stepNum}>
-                <Text style={styles.stepNumText}>{index + 1}</Text>
-              </View>
-              <Text style={styles.stepText}>{label}</Text>
-            </View>
-          ))}
-        </View>
       </ScrollView>
     </SafeAreaView>
   )
@@ -184,35 +167,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     marginTop: 2,
-  },
-  steps: {
-    gap: 10,
-  },
-  stepsTitle: {
-    color: colors.white,
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  stepRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  stepNum: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: colors.grassDeep,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stepNumText: {
-    color: colors.grassLight,
-    fontWeight: '800',
-  },
-  stepText: {
-    color: colors.textSecondary,
-    fontSize: 15,
   },
 })
 
