@@ -1,6 +1,9 @@
 import logging
+import re
 import smtplib
+import ssl
 from email.message import EmailMessage
+from email.utils import formataddr, parseaddr
 
 from app.config import settings
 
@@ -9,6 +12,13 @@ logger = logging.getLogger(__name__)
 
 def email_configured() -> bool:
     return bool(settings.smtp_host or settings.ses_from_email)
+
+
+def public_smtp_error(exc: BaseException) -> str:
+    text = str(exc).replace("\n", " ").strip() or type(exc).__name__
+    if settings.smtp_password:
+        text = text.replace(settings.smtp_password, "***")
+    return text[:240]
 
 
 def send_password_reset_email(to_email: str, reset_url: str, app_url: str) -> None:
@@ -35,42 +45,69 @@ def send_password_reset_email(to_email: str, reset_url: str, app_url: str) -> No
 </body>
 </html>"""
 
-    from_address = (
-        settings.smtp_from
-        or settings.ses_from_email
-        or settings.admin_email
-    )
+    mailbox = _mailbox_address()
+    from_header = formataddr(("Lance On", mailbox))
     message = EmailMessage()
     message["Subject"] = subject
-    message["From"] = from_address
+    message["From"] = from_header
     message["To"] = to_email
     message.set_content(text)
     message.add_alternative(html, subtype="html")
 
     if settings.smtp_host:
-        _send_smtp(message)
+        _send_smtp(message, mailbox)
         return
     if settings.ses_from_email:
-        _send_ses(to_email, from_address, subject, text, html)
+        _send_ses(to_email, mailbox, subject, text, html)
         return
 
     raise RuntimeError("Nenhum provedor de e-mail configurado (SMTP_HOST ou SES_FROM_EMAIL)")
 
 
-def _send_smtp(message: EmailMessage) -> None:
-    port = settings.smtp_port
-    if port == 465:
-        server = smtplib.SMTP_SSL(settings.smtp_host, port, timeout=20)
-    else:
-        server = smtplib.SMTP(settings.smtp_host, port, timeout=20)
+def _mailbox_address() -> str:
+    raw = (
+        settings.smtp_user
+        or settings.smtp_from
+        or settings.ses_from_email
+        or settings.admin_email
+    )
+    _name, address = parseaddr(raw or "")
+    if address and "@" in address:
+        return address
+    match = re.search(r"[^<\s]+@[^>\s]+", raw or "")
+    if match:
+        return match.group(0)
+    return (raw or "").strip()
+
+
+def _send_smtp(message: EmailMessage, mailbox: str) -> None:
+    host = (settings.smtp_host or "").strip()
+    port = int(settings.smtp_port)
+    user = (settings.smtp_user or mailbox).strip()
+    password = settings.smtp_password or ""
+    context = ssl.create_default_context()
+    server: smtplib.SMTP | None = None
+
     try:
-        if settings.smtp_use_tls and port != 465:
-            server.starttls()
-        if settings.smtp_user:
-            server.login(settings.smtp_user, settings.smtp_password or "")
-        server.send_message(message)
+        if port == 465:
+            server = smtplib.SMTP_SSL(host, port, timeout=20, context=context)
+        else:
+            server = smtplib.SMTP(host, port, timeout=20)
+            server.ehlo()
+            server.starttls(context=context)
+            server.ehlo()
+        if user:
+            server.login(user, password)
+        server.send_message(message, from_addr=mailbox)
     finally:
-        server.quit()
+        if server is not None:
+            try:
+                server.quit()
+            except Exception:
+                try:
+                    server.close()
+                except Exception:
+                    pass
 
 
 def _send_ses(to_email: str, from_address: str, subject: str, text: str, html: str) -> None:

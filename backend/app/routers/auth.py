@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.emailer import email_configured, send_password_reset_email
+from app.emailer import email_configured, public_smtp_error, send_password_reset_email
 from app.firebase_auth import identity_from_auth_payload, verify_firebase_id_token
 from app.google_app_page import google_app_html
 from app.reset_password_page import reset_password_html
@@ -254,19 +254,13 @@ def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db
     reset_url = f"{public_api}/api/auth/reset-password-app?token={raw_token}"
     app_url = f"lanceon://reset-password?token={raw_token}"
 
-    if not email_configured():
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="E-mail de redefinicao nao configurado no servidor. Defina SMTP_HOST no .env da API.",
-        )
-
     try:
         send_password_reset_email(user.email, reset_url, app_url)
-    except Exception:
+    except Exception as exc:
         logger.exception("Falha ao enviar e-mail de redefinicao de senha")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Nao foi possivel enviar o e-mail agora. Tente novamente em alguns minutos.",
+            detail=f"Nao foi possivel enviar o e-mail: {public_smtp_error(exc)}",
         ) from None
 
     return ForgotPasswordResponse(message=message)
