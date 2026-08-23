@@ -1,3 +1,4 @@
+import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
 
@@ -36,6 +37,10 @@ def decode_access_token(token: str) -> dict | None:
 
 def generate_device_api_key() -> str:
     return secrets.token_urlsafe(32)
+
+
+def hash_reset_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 def ensure_admin_user(db: Session) -> None:

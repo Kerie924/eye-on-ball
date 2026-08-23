@@ -29,6 +29,16 @@ class Settings(BaseSettings):
     # Firebase project ID used to verify Authentication ID tokens
     firebase_project_id: str | None = None
 
+    public_api_url: str = "https://api.lanceonpara.com.br"
+
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_user: str | None = None
+    smtp_password: str | None = None
+    smtp_from: str | None = None
+    smtp_use_tls: bool = True
+    ses_from_email: str | None = None
+
 
     @property
     def google_client_ids(self) -> set[str]:

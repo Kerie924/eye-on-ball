@@ -17,16 +17,17 @@ export default function ForgotPasswordScreen() {
   async function handleSubmit() {
     setError('')
     setMessage('')
+    if (!email.trim()) {
+      setError('Informe o e-mail da conta')
+      return
+    }
     setLoading(true)
     try {
       const result = await api.forgotPassword(email.trim())
-      setMessage(result.message)
-      if (result.reset_token) {
-        router.push({
-          pathname: '/(auth)/reset-password',
-          params: { token: result.reset_token },
-        })
-      }
+      setMessage(
+        result.message ||
+          'Se o e-mail existir, voce recebera um link para redefinir a senha.',
+      )
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Nao foi possivel enviar')
     } finally {
@@ -39,7 +40,9 @@ export default function ForgotPasswordScreen() {
       <View style={styles.content}>
         <Text style={styles.title}>Esqueceu a senha?</Text>
         <Text style={styles.subtitle}>
-          Informe seu e-mail para receber o link de redefinicao.
+          Informe o e-mail da conta. Se ele existir, enviaremos um link de
+          verificacao. So quem acessar essa caixa de entrada consegue redefinir
+          a senha.
         </Text>
         <Input
           label="E-mail"
@@ -50,7 +53,7 @@ export default function ForgotPasswordScreen() {
         />
         {error ? <Text style={styles.error}>{error}</Text> : null}
         {message ? <Text style={styles.success}>{message}</Text> : null}
-        <Button label="Enviar" loading={loading} onPress={handleSubmit} />
+        <Button label="Enviar link" loading={loading} onPress={handleSubmit} />
         <Button label="Voltar" variant="ghost" onPress={() => router.back()} />
       </View>
     </SafeAreaView>

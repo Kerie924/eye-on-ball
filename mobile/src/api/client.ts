@@ -116,7 +116,7 @@ export const api = {
   },
 
   forgotPassword(email: string) {
-    return request<{ message: string; reset_token?: string | null }>(
+    return request<{ message: string }>(
       '/api/auth/forgot-password',
       {
         method: 'POST',

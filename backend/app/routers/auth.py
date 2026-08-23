@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta, timezone
 from secrets import token_urlsafe
 from urllib.error import HTTPError, URLError
@@ -13,8 +14,10 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.dependencies import get_current_user
+from app.emailer import email_configured, send_password_reset_email
 from app.firebase_auth import identity_from_auth_payload, verify_firebase_id_token
 from app.google_app_page import google_app_html
+from app.reset_password_page import reset_password_html
 from app.models import User, UserRole
 from app.schemas import (
     ForgotPasswordRequest,
@@ -28,7 +31,9 @@ from app.schemas import (
     UserRegister,
     UserResponse,
 )
-from app.security import create_access_token, hash_password, verify_password
+from app.security import create_access_token, hash_password, hash_reset_token, verify_password
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -36,6 +41,11 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.get("/google-app", response_class=HTMLResponse, include_in_schema=False)
 def google_app_sign_in(continue_url: str = Query(alias="continue")):
     return google_app_html(continue_url)
+
+
+@router.get("/reset-password-app", response_class=HTMLResponse, include_in_schema=False)
+def reset_password_app(token: str = Query(min_length=10)):
+    return reset_password_html(token)
 
 
 def _token_issuer(id_token: str) -> str:
@@ -223,24 +233,41 @@ def update_me(
 
 @router.post("/forgot-password", response_model=ForgotPasswordResponse)
 def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    message = "Se o e-mail existir, voce recebera um link para redefinir a senha."
     user = db.query(User).filter(User.email == payload.email).first()
-    message = "Se o e-mail existir, voce recebera instrucoes para redefinir a senha."
 
     if not user:
         return ForgotPasswordResponse(message=message)
 
-    token = token_urlsafe(32)
-    user.reset_token = token
+    raw_token = token_urlsafe(32)
+    user.reset_token = hash_reset_token(raw_token)
     user.reset_token_expires = datetime.now(timezone.utc) + timedelta(hours=1)
     db.commit()
 
-    # No SMTP in MVP: return token so the mobile app can complete the reset flow.
-    return ForgotPasswordResponse(message=message, reset_token=token)
+    public_api = settings.public_api_url.rstrip("/")
+    reset_url = f"{public_api}/api/auth/reset-password-app?token={raw_token}"
+    app_url = f"lanceon://reset-password?token={raw_token}"
+
+    if email_configured():
+        try:
+            send_password_reset_email(user.email, reset_url, app_url)
+        except Exception:
+            logger.exception("Falha ao enviar e-mail de redefinicao de senha")
+    else:
+        logger.warning(
+            "Pedido de redefinicao de senha ignorado no envio: configure SMTP_HOST ou SES_FROM_EMAIL"
+        )
+
+    return ForgotPasswordResponse(message=message)
 
 
 @router.post("/reset-password", response_model=MessageResponse)
 def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.reset_token == payload.token).first()
+    user = (
+        db.query(User)
+        .filter(User.reset_token == hash_reset_token(payload.token))
+        .first()
+    )
     if not user or not user.reset_token_expires:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

@@ -10,7 +10,7 @@ import { colors } from '@/src/theme/colors'
 
 export default function ResetPasswordScreen() {
   const params = useLocalSearchParams<{ token?: string }>()
-  const [token, setToken] = useState(params.token ?? '')
+  const token = typeof params.token === 'string' ? params.token : ''
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [error, setError] = useState('')
@@ -18,6 +18,10 @@ export default function ResetPasswordScreen() {
 
   async function handleSubmit() {
     setError('')
+    if (!token) {
+      setError('Abra o link enviado ao seu e-mail para continuar.')
+      return
+    }
     if (password !== confirm) {
       setError('As senhas nao coincidem')
       return
@@ -37,24 +41,37 @@ export default function ResetPasswordScreen() {
     <SafeAreaView style={styles.safe}>
       <View style={styles.content}>
         <Text style={styles.title}>Nova senha</Text>
-        <Text style={styles.subtitle}>Crie uma nova senha para sua conta.</Text>
-        {!params.token ? (
-          <Input label="Token" value={token} onChangeText={setToken} />
-        ) : null}
-        <Input
-          label="Nova senha"
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-        />
-        <Input
-          label="Confirmar senha"
-          value={confirm}
-          onChangeText={setConfirm}
-          secureTextEntry
-        />
-        {error ? <Text style={styles.error}>{error}</Text> : null}
-        <Button label="Salvar senha" loading={loading} onPress={handleSubmit} />
+        <Text style={styles.subtitle}>
+          {token
+            ? 'Crie uma nova senha para sua conta.'
+            : 'Use o link enviado ao seu e-mail. Ele confirma que a conta e sua.'}
+        </Text>
+        {token ? (
+          <>
+            <Input
+              label="Nova senha"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+            />
+            <Input
+              label="Confirmar senha"
+              value={confirm}
+              onChangeText={setConfirm}
+              secureTextEntry
+            />
+            {error ? <Text style={styles.error}>{error}</Text> : null}
+            <Button label="Salvar senha" loading={loading} onPress={handleSubmit} />
+          </>
+        ) : (
+          <>
+            {error ? <Text style={styles.error}>{error}</Text> : null}
+            <Button
+              label="Ir para e-mail"
+              onPress={() => router.replace('/(auth)/forgot-password')}
+            />
+          </>
+        )}
         <Button label="Voltar" variant="ghost" onPress={() => router.back()} />
       </View>
     </SafeAreaView>
