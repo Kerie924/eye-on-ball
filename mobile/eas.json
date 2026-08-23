@@ -15,8 +15,12 @@
       },
       "env": {
         "EXPO_PUBLIC_API_URL": "https://api.lanceonpara.com.br",
-        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "113076073338-8rs9lj8q1uaa6hs4hl1kag9vmt6d31de.apps.googleusercontent.com",
-        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "113076073338-rsge38icgupj4afot8c631lllilvtis7.apps.googleusercontent.com"
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "lance-on",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "lance-on.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyAjl7oyXIWmLGys0YnJEjPSd5g8rZ1cSDM",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:998054424238:android:e105a80d4f32de63b7073f",
+        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "998054424238",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "998054424238-sv25tk7b05ijb59dpav2gkqrqr22dhn8.apps.googleusercontent.com"
       }
     },
     "production": {
@@ -26,8 +30,12 @@
       },
       "env": {
         "EXPO_PUBLIC_API_URL": "https://api.lanceonpara.com.br",
-        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "113076073338-8rs9lj8q1uaa6hs4hl1kag9vmt6d31de.apps.googleusercontent.com",
-        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "113076073338-rsge38icgupj4afot8c631lllilvtis7.apps.googleusercontent.com"
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "lance-on",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "lance-on.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyAjl7oyXIWmLGys0YnJEjPSd5g8rZ1cSDM",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:998054424238:android:e105a80d4f32de63b7073f",
+        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "998054424238",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "998054424238-sv25tk7b05ijb59dpav2gkqrqr22dhn8.apps.googleusercontent.com"
       }
     }
   },

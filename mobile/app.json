@@ -18,6 +18,7 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "package": "com.lanceon.app",
+      "googleServicesFile": "./google-services.json",
       "predictiveBackGestureEnabled": false
     },
     "web": {
@@ -46,6 +47,12 @@
           "photosPermission": "O Lance On usa suas fotos para o avatar do perfil.",
           "cameraPermission": false,
           "microphonePermission": false
+        }
+      ],
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.998054424238-sv25tk7b05ijb59dpav2gkqrqr22dhn8"
         }
       ]
     ],

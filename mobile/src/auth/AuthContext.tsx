@@ -11,6 +11,7 @@ import {
 import { api, setAuthToken } from '../api/client'
 import { deleteToken, getToken, setToken } from '../storage/tokenStorage'
 import type { User, UserRole } from '../types'
+import { signOutGoogle } from './googleAuth'
 
 const TOKEN_KEY = 'lanceon_token'
 
@@ -107,6 +108,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   )
 
   const logout = useCallback(async () => {
+    await signOutGoogle()
     await deleteToken(TOKEN_KEY)
     setAuthToken(null)
     setUser(null)

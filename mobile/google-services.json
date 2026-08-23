@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "998054424238",
+    "project_id": "lance-on",
+    "storage_bucket": "lance-on.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:998054424238:android:e105a80d4f32de63b7073f",
+        "android_client_info": {
+          "package_name": "com.lanceon.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "998054424238-sv25tk7b05ijb59dpav2gkqrqr22dhn8.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAjl7oyXIWmLGys0YnJEjPSd5g8rZ1cSDM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "998054424238-sv25tk7b05ijb59dpav2gkqrqr22dhn8.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
+    "@react-native-google-signin/google-signin": "^16.1.4",
     "expo": "~57.0.15",
     "expo-auth-session": "~57.0.8",
     "expo-constants": "~57.0.9",
@@ -21,6 +22,7 @@
     "expo-symbols": "~57.0.2",
     "expo-video": "~57.0.2",
     "expo-web-browser": "~57.0.2",
+    "firebase": "^12.18.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.86.2",

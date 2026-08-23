@@ -26,6 +26,8 @@ class Settings(BaseSettings):
 
     # Google OAuth client ID(s) used to verify ID tokens (comma-separated OK)
     google_client_id: str | None = None
+    # Firebase project ID used to verify Authentication ID tokens
+    firebase_project_id: str | None = None
 
 
     @property

@@ -1,5 +1,5 @@
 import { Link, router } from 'expo-router'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import {
   KeyboardAvoidingView,
   Platform,
@@ -14,9 +14,9 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import { ApiError } from '@/src/api/client'
 import { useAuth } from '@/src/auth/AuthContext'
 import {
-  extractGoogleIdToken,
+  isGoogleAuthCancelled,
   isGoogleAuthConfigured,
-  useGoogleIdToken,
+  signInWithGoogle,
 } from '@/src/auth/googleAuth'
 import { Button } from '@/src/components/Button'
 import { BrandLogo } from '@/src/components/BrandLogo'
@@ -25,41 +25,11 @@ import { colors } from '@/src/theme/colors'
 
 export default function LoginScreen() {
   const { login, loginWithGoogle } = useAuth()
-  const { ready, response, promptAsync } = useGoogleIdToken()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [googleLoading, setGoogleLoading] = useState(false)
-
-  useEffect(() => {
-    async function finishGoogle() {
-      const idToken = extractGoogleIdToken(response)
-      if (!idToken) {
-        if (response?.type === 'error') {
-          setError('Falha na autenticacao Google')
-          setGoogleLoading(false)
-        } else if (response?.type === 'dismiss' || response?.type === 'cancel') {
-          setGoogleLoading(false)
-        }
-        return
-      }
-
-      setGoogleLoading(true)
-      try {
-        await loginWithGoogle(idToken, 'athlete')
-        router.replace('/(tabs)')
-      } catch (err) {
-        setError(err instanceof ApiError ? err.message : 'Falha no login Google')
-      } finally {
-        setGoogleLoading(false)
-      }
-    }
-
-    if (response) {
-      finishGoogle()
-    }
-  }, [response, loginWithGoogle])
 
   async function handleLogin() {
     setError('')
@@ -78,15 +48,20 @@ export default function LoginScreen() {
     setError('')
     if (!isGoogleAuthConfigured()) {
       setError(
-        'Google OAuth nao configurado. Defina EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID no mobile/.env e reinicie o Expo.',
+        'Firebase Auth nao configurado. Defina EXPO_PUBLIC_FIREBASE_API_KEY, EXPO_PUBLIC_FIREBASE_PROJECT_ID e EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID.',
       )
       return
     }
     setGoogleLoading(true)
     try {
-      await promptAsync()
-    } catch {
-      setError('Nao foi possivel abrir o login Google')
+      const idToken = await signInWithGoogle()
+      await loginWithGoogle(idToken, 'athlete')
+      router.replace('/(tabs)')
+    } catch (err) {
+      if (!(await isGoogleAuthCancelled(err))) {
+        setError(err instanceof ApiError ? err.message : 'Falha no login Google')
+      }
+    } finally {
       setGoogleLoading(false)
     }
   }
@@ -138,7 +113,6 @@ export default function LoginScreen() {
               label="Continuar com Google"
               variant="outline"
               loading={googleLoading}
-              disabled={!ready && isGoogleAuthConfigured()}
               onPress={handleGoogle}
             />
 

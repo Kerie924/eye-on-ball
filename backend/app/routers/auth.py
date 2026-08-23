@@ -4,12 +4,15 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import urlopen
 
+from jose import jwt
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
 from app.dependencies import get_current_user
+from app.firebase_auth import identity_from_auth_payload, verify_firebase_id_token
 from app.models import User, UserRole
 from app.schemas import (
     ForgotPasswordRequest,
@@ -26,6 +29,20 @@ from app.schemas import (
 from app.security import create_access_token, hash_password, verify_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+def _token_issuer(id_token: str) -> str:
+    try:
+        return str(jwt.get_unverified_claims(id_token).get("iss") or "")
+    except Exception:
+        return ""
+
+
+def verify_id_token(id_token: str) -> dict:
+    issuer = _token_issuer(id_token)
+    if issuer.startswith("https://securetoken.google.com/"):
+        return verify_firebase_id_token(id_token)
+    return verify_google_id_token(id_token)
 
 
 def verify_google_id_token(id_token: str) -> dict:
@@ -108,11 +125,17 @@ def login(payload: UserLogin, db: Session = Depends(get_db)):
 
 @router.post("/google", response_model=TokenResponse)
 def google_login(payload: GoogleAuthRequest, db: Session = Depends(get_db)):
-    google = verify_google_id_token(payload.id_token)
-    email = google["email"]
-    google_id = google["sub"]
-    full_name = google.get("name") or email.split("@")[0]
-    avatar_url = google.get("picture")
+    identity = identity_from_auth_payload(verify_id_token(payload.id_token))
+    email = identity["email"]
+    google_id = identity["google_id"]
+    full_name = identity.get("name") or email.split("@")[0]
+    avatar_url = identity.get("picture")
+
+    if not email or not google_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token de autenticacao incompleto",
+        )
 
     user = db.query(User).filter(User.google_id == google_id).first()
     if not user:
