@@ -18,6 +18,17 @@ def public_smtp_error(exc: BaseException) -> str:
     text = str(exc).replace("\n", " ").strip() or type(exc).__name__
     if settings.smtp_password:
         text = text.replace(settings.smtp_password, "***")
+    if "535" in text or "authentication failed" in text.lower():
+        return (
+            "autenticacao SMTP recusada (erro 535). "
+            "SMTP_PORT deve ser 465 ou 587 — 535 nao e porta. "
+            "Confira SMTP_USER (e-mail completo) e SMTP_PASSWORD (senha da caixa Hostinger)."
+        )
+    if "timed out" in text.lower() or "timeout" in text.lower():
+        return (
+            "conexao SMTP expirou. Use SMTP_PORT=465 (ou 587), nao 535. "
+            "Host: smtp.titan.email ou smtp.hostinger.com"
+        )
     return text[:240]
 
 
@@ -83,8 +94,17 @@ def _mailbox_address() -> str:
 def _send_smtp(message: EmailMessage, mailbox: str) -> None:
     host = (settings.smtp_host or "").strip()
     port = int(settings.smtp_port)
-    user = (settings.smtp_user or mailbox).strip()
-    password = settings.smtp_password or ""
+    if port not in {465, 587}:
+        raise RuntimeError(
+            f"SMTP_PORT={port} e invalido. Use 465 (SSL) ou 587 (TLS). "
+            "535 e codigo de senha errada, nao e porta."
+        )
+    user = (settings.smtp_user or mailbox).strip().strip('"').strip("'")
+    password = (settings.smtp_password or "").strip().strip('"').strip("'")
+    if not user or "@" not in user:
+        raise RuntimeError("SMTP_USER deve ser o e-mail completo, ex: noreply@lanceonpara.com.br")
+    if not password:
+        raise RuntimeError("SMTP_PASSWORD esta vazio. Use a senha da caixa de e-mail Hostinger.")
     context = ssl.create_default_context()
     server: smtplib.SMTP | None = None
 
