@@ -2,7 +2,7 @@ import logging
 from io import BytesIO
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
@@ -67,12 +67,13 @@ def _to_response(report: FeedbackReport) -> FeedbackReportResponse:
 
 @router.post("/feedback", response_model=FeedbackSubmitResponse, status_code=201)
 async def submit_feedback(
-    message: str = Form(...),
-    images: list[UploadFile] = File(default=[]),
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    text = (message or "").strip()
+    form = await request.form()
+    raw_message = form.get("message")
+    text = raw_message.strip() if isinstance(raw_message, str) else ""
     if len(text) < MIN_MESSAGE:
         raise HTTPException(
             status_code=400,
@@ -83,7 +84,11 @@ async def submit_feedback(
             status_code=400,
             detail=f"A mensagem pode ter no maximo {MAX_MESSAGE} caracteres.",
         )
-    uploads = [item for item in images if item.filename]
+    uploads = [
+        item
+        for key, item in form.multi_items()
+        if key == "images" and isinstance(item, UploadFile)
+    ]
     if len(uploads) > MAX_IMAGES:
         raise HTTPException(
             status_code=400,
@@ -97,6 +102,8 @@ async def submit_feedback(
     image_urls: list[str] = []
     for upload in uploads:
         content_type = (upload.content_type or "image/jpeg").lower()
+        if content_type in {"application/octet-stream", "binary/octet-stream"}:
+            content_type = "image/jpeg"
         if content_type not in ALLOWED_TYPES:
             raise HTTPException(
                 status_code=400,

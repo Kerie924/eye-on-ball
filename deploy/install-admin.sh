@@ -44,6 +44,11 @@ cd "${ADMIN_SRC}"
 
 if [ -n "${API_URL}" ]; then
   printf 'VITE_API_URL=%s\n' "${API_URL}" > .env.production
+elif [ -f .env.production ]; then
+  echo "Keeping existing admin/.env.production"
+elif [ -f .env ]; then
+  cp .env .env.production
+  echo "Copied admin/.env to admin/.env.production"
 else
   # Same origin: browser calls /api on lanceonpara.com.br
   printf 'VITE_API_URL=\n' > .env.production

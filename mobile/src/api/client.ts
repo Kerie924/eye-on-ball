@@ -1,3 +1,5 @@
+import { Platform } from 'react-native'
+
 import { API_URL } from '../config'
 import type {
   City,
@@ -20,6 +22,25 @@ export class ApiError extends Error {
   }
 }
 
+function isFormData(body: BodyInit | null | undefined): body is FormData {
+  return typeof FormData !== 'undefined' && body instanceof FormData
+}
+
+function messageFromApiDetail(detail: unknown, fallback: string) {
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) {
+    const parts = detail.map((item) => {
+      if (typeof item === 'string') return item
+      if (item && typeof item === 'object' && 'msg' in item) {
+        return String((item as { msg: unknown }).msg)
+      }
+      return ''
+    })
+    return parts.filter(Boolean).join(' ') || fallback
+  }
+  return fallback
+}
+
 let authToken: string | null = null
 
 export function setAuthToken(token: string | null) {
@@ -33,7 +54,9 @@ export function getAuthToken() {
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers)
 
-  if (!(options.body instanceof FormData)) {
+  if (isFormData(options.body)) {
+    headers.delete('Content-Type')
+  } else if (!(options.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json')
   }
 
@@ -58,7 +81,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     let message = 'Erro na requisicao'
     try {
       const data = await response.json()
-      message = typeof data.detail === 'string' ? data.detail : message
+      message = messageFromApiDetail(data.detail, message)
     } catch {
       message = response.statusText || message
     }
@@ -187,17 +210,26 @@ export const api = {
     })
   },
 
-  submitFeedback(
+  async submitFeedback(
     message: string,
     images: { uri: string; name: string; type: string }[],
   ) {
     const body = new FormData()
     body.append('message', message)
     for (const image of images) {
+      const type = image.type || 'image/jpeg'
+      if (Platform.OS === 'web') {
+        const blob = await fetch(image.uri).then((res) => res.blob())
+        const file = new File([blob], image.name, {
+          type: type || blob.type || 'image/jpeg',
+        })
+        body.append('images', file)
+        continue
+      }
       body.append('images', {
         uri: image.uri,
         name: image.name,
-        type: image.type,
+        type,
       } as unknown as Blob)
     }
     return request<FeedbackSubmitResponse>('/api/feedback', {
