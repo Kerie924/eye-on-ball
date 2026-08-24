@@ -1,3 +1,4 @@
+import base64
 import logging
 from io import BytesIO
 from uuid import uuid4
@@ -29,6 +30,54 @@ ALLOWED_TYPES = {
     "image/heic",
     "image/heif",
 }
+
+
+def _normalize_content_type(content_type: str | None) -> str:
+    value = (content_type or "image/jpeg").lower().split(";")[0].strip()
+    if value in {"application/octet-stream", "binary/octet-stream", "image"}:
+        return "image/jpeg"
+    return value
+
+
+def _decode_data_url(raw: str) -> bytes:
+    payload = raw.strip()
+    if payload.startswith("data:") and "," in payload:
+        payload = payload.split(",", 1)[1]
+    return base64.b64decode(payload)
+
+
+async def _read_payload(request: Request) -> tuple[str, list[tuple[str, bytes]]]:
+    header = (request.headers.get("content-type") or "").lower()
+    files: list[tuple[str, bytes]] = []
+
+    if "application/json" in header:
+        payload = await request.json()
+        text = str(payload.get("message") or "").strip()
+        for item in payload.get("images") or []:
+            if not isinstance(item, dict):
+                continue
+            raw = item.get("data")
+            if not isinstance(raw, str) or not raw.strip():
+                continue
+            try:
+                data = _decode_data_url(raw)
+            except Exception as exc:
+                raise HTTPException(status_code=400, detail="Foto invalida.") from exc
+            content_type = _normalize_content_type(item.get("content_type"))
+            files.append((content_type, data))
+        return text, files
+
+    form = await request.form()
+    raw_message = form.get("message")
+    text = raw_message.strip() if isinstance(raw_message, str) else ""
+    for key, item in form.multi_items():
+        if key != "images" or not isinstance(item, UploadFile):
+            continue
+        data = await item.read()
+        if not data:
+            continue
+        files.append((_normalize_content_type(item.content_type), data))
+    return text, files
 
 
 def _ext_for_type(content_type: str) -> str:
@@ -71,9 +120,7 @@ async def submit_feedback(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    form = await request.form()
-    raw_message = form.get("message")
-    text = raw_message.strip() if isinstance(raw_message, str) else ""
+    text, files = await _read_payload(request)
     if len(text) < MIN_MESSAGE:
         raise HTTPException(
             status_code=400,
@@ -84,12 +131,7 @@ async def submit_feedback(
             status_code=400,
             detail=f"A mensagem pode ter no maximo {MAX_MESSAGE} caracteres.",
         )
-    uploads = [
-        item
-        for key, item in form.multi_items()
-        if key == "images" and isinstance(item, UploadFile)
-    ]
-    if len(uploads) > MAX_IMAGES:
+    if len(files) > MAX_IMAGES:
         raise HTTPException(
             status_code=400,
             detail=f"Envie no maximo {MAX_IMAGES} fotos.",
@@ -100,18 +142,12 @@ async def submit_feedback(
     db.flush()
 
     image_urls: list[str] = []
-    for upload in uploads:
-        content_type = (upload.content_type or "image/jpeg").lower()
-        if content_type in {"application/octet-stream", "binary/octet-stream"}:
-            content_type = "image/jpeg"
+    for content_type, data in files:
         if content_type not in ALLOWED_TYPES:
             raise HTTPException(
                 status_code=400,
                 detail="Envie apenas imagens (JPG, PNG, WEBP ou HEIC).",
             )
-        data = await upload.read()
-        if not data:
-            continue
         if len(data) > MAX_IMAGE_BYTES:
             raise HTTPException(
                 status_code=400,

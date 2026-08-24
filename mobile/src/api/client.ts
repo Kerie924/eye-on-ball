@@ -23,7 +23,9 @@ export class ApiError extends Error {
 }
 
 function isFormData(body: BodyInit | null | undefined): body is FormData {
-  return typeof FormData !== 'undefined' && body instanceof FormData
+  if (body == null || typeof body !== 'object') return false
+  if (typeof FormData !== 'undefined' && body instanceof FormData) return true
+  return (body as { constructor?: { name?: string } }).constructor?.name === 'FormData'
 }
 
 function messageFromApiDetail(detail: unknown, fallback: string) {
@@ -56,7 +58,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
   if (isFormData(options.body)) {
     headers.delete('Content-Type')
-  } else if (!(options.body instanceof FormData)) {
+  } else {
     headers.set('Content-Type', 'application/json')
   }
 
@@ -73,7 +75,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   } catch {
     throw new ApiError(
       0,
-      `Sem conexao com a API (${API_URL}). Verifique se o backend esta rodando e se EXPO_PUBLIC_API_URL esta correto.`,
+      'Sem conexao com o servidor. Confira a internet e tente de novo.',
     )
   }
 
@@ -212,25 +214,33 @@ export const api = {
 
   async submitFeedback(
     message: string,
-    images: { uri: string; name: string; type: string }[],
+    images: { uri: string; name: string; type: string; base64?: string }[],
   ) {
+    if (Platform.OS !== 'web') {
+      return request<FeedbackSubmitResponse>('/api/feedback', {
+        method: 'POST',
+        body: JSON.stringify({
+          message,
+          images: images
+            .filter((image) => image.base64)
+            .map((image) => ({
+              name: image.name,
+              content_type: image.type || 'image/jpeg',
+              data: image.base64,
+            })),
+        }),
+      })
+    }
+
     const body = new FormData()
     body.append('message', message)
     for (const image of images) {
       const type = image.type || 'image/jpeg'
-      if (Platform.OS === 'web') {
-        const blob = await fetch(image.uri).then((res) => res.blob())
-        const file = new File([blob], image.name, {
-          type: type || blob.type || 'image/jpeg',
-        })
-        body.append('images', file)
-        continue
-      }
-      body.append('images', {
-        uri: image.uri,
-        name: image.name,
-        type,
-      } as unknown as Blob)
+      const blob = await fetch(image.uri).then((res) => res.blob())
+      const file = new File([blob], image.name, {
+        type: type || blob.type || 'image/jpeg',
+      })
+      body.append('images', file)
     }
     return request<FeedbackSubmitResponse>('/api/feedback', {
       method: 'POST',

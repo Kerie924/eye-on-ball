@@ -27,6 +27,7 @@ interface PickedPhoto {
   uri: string
   name: string
   type: string
+  base64?: string
 }
 
 export default function ReportScreen() {
@@ -49,9 +50,10 @@ export default function ReportScreen() {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
-      quality: 0.7,
+      quality: 0.6,
       allowsMultipleSelection: true,
       selectionLimit: remaining,
+      base64: Platform.OS !== 'web',
     })
 
     if (result.canceled) return
@@ -63,6 +65,7 @@ export default function ReportScreen() {
         uri: asset.uri,
         name: asset.fileName ?? `foto-${Date.now()}-${index}.${ext}`,
         type: mime,
+        base64: asset.base64 ?? undefined,
       }
     })
     setPhotos((current) => [...current, ...next].slice(0, MAX_PHOTOS))
@@ -83,7 +86,12 @@ export default function ReportScreen() {
     try {
       await api.submitFeedback(
         text,
-        photos.map((photo) => ({ uri: photo.uri, name: photo.name, type: photo.type })),
+        photos.map((photo) => ({
+          uri: photo.uri,
+          name: photo.name,
+          type: photo.type,
+          base64: photo.base64,
+        })),
       )
       setMessage('')
       setPhotos([])
