@@ -82,6 +82,16 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="report"
+        options={{
+          title: 'Reportar',
+          headerShown: false,
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="warning" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="profile"
         options={{
           title: 'Perfil',

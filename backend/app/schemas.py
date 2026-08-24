@@ -198,6 +198,27 @@ class MessageResponse(BaseModel):
     message: str
 
 
+class FeedbackImageResponse(BaseModel):
+    id: int
+    url: str
+
+
+class FeedbackSubmitResponse(BaseModel):
+    id: int
+    message: str
+
+
+class FeedbackReportResponse(BaseModel):
+    id: int
+    user_id: int
+    user_name: str | None = None
+    user_email: str | None = None
+    message: str
+    status: str
+    created_at: datetime
+    images: list[FeedbackImageResponse] = []
+
+
 class AdminCreateUser(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8)

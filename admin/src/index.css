@@ -1115,6 +1115,76 @@ select {
   color: var(--text-secondary);
 }
 
+.feedback-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.feedback-card {
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.feedback-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.feedback-card-head p {
+  margin: 2px 0 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.feedback-status {
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 4px 10px;
+  background: #e5e7eb;
+  color: #374151;
+}
+
+.feedback-status.new {
+  background: #dcfce7;
+  color: #14532d;
+}
+
+.feedback-message {
+  margin: 0;
+  white-space: pre-wrap;
+  color: var(--text-primary);
+}
+
+.feedback-thumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.feedback-thumbs img {
+  width: 96px;
+  height: 96px;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+
+.feedback-card-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
 .login-page {
   min-height: 100vh;
   display: grid;

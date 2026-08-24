@@ -5,6 +5,7 @@ import type {
   Court,
   CourtAccessRequest,
   Device,
+  FeedbackReport,
   MessageResponse,
   PlatformSettings,
   Recording,
@@ -84,6 +85,16 @@ export const api = {
 
   settings() {
     return request<PlatformSettings>('/api/admin/settings')
+  },
+
+  feedbackReports() {
+    return request<FeedbackReport[]>('/api/admin/feedback')
+  },
+
+  markFeedbackRead(reportId: number) {
+    return request<FeedbackReport>(`/api/admin/feedback/${reportId}`, {
+      method: 'PATCH',
+    })
   },
 
   updateSettings(payload: Partial<PlatformSettings>) {

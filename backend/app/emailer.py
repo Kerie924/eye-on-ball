@@ -1,6 +1,7 @@
 import logging
 import os
 import re
+from html import escape
 import smtplib
 import ssl
 from email.message import EmailMessage
@@ -94,6 +95,54 @@ def send_password_reset_email(to_email: str, reset_url: str, app_url: str) -> No
     </a>
   </p>
   <p style="color:#a3a3a3;font-size:14px;">O link expira em 1 hora. Se voce nao pediu isso, ignore este e-mail.</p>
+</body>
+</html>"""
+
+    mailbox = _mailbox_address()
+    from_header = formataddr(("Lance On", mailbox))
+    message = EmailMessage()
+    message["Subject"] = subject
+    message["From"] = from_header
+    message["To"] = to_email
+    message.set_content(text)
+    message.add_alternative(html, subtype="html")
+
+    if settings.smtp_host:
+        _send_smtp(message, mailbox)
+        return
+    if settings.ses_from_email:
+        _send_ses(to_email, mailbox, subject, text, html)
+        return
+
+    raise RuntimeError("Nenhum provedor de e-mail configurado (SMTP_HOST ou SES_FROM_EMAIL)")
+
+
+def send_feedback_email(
+    to_email: str,
+    user_name: str,
+    user_email: str,
+    message_body: str,
+    image_urls: list[str],
+) -> None:
+    subject = f"Novo relato no app — {user_name}"
+    links = "\n".join(f"- {url}" for url in image_urls) or "(nenhuma foto)"
+    text = (
+        f"Usuario: {user_name} <{user_email}>\n\n"
+        f"Mensagem:\n{message_body}\n\n"
+        f"Fotos:\n{links}\n"
+    )
+    photos_html = "".join(
+        f'<p><a href="{escape(url)}"><img src="{escape(url)}" alt="Foto" '
+        f'style="max-width:280px;border-radius:8px;" /></a></p>'
+        for url in image_urls
+    ) or "<p style='color:#a3a3a3'>Nenhuma foto anexada.</p>"
+    html = f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<body style="font-family:system-ui,sans-serif;background:#0a0a0a;color:#f5f5f5;padding:24px;">
+  <h1 style="color:#22c55e;">Lance On — Relato do app</h1>
+  <p><strong>{escape(user_name)}</strong> ({escape(user_email)})</p>
+  <p style="white-space:pre-wrap;background:#171717;padding:16px;border-radius:10px;">{escape(message_body)}</p>
+  {photos_html}
 </body>
 </html>"""
 

@@ -1,11 +1,11 @@
 import { Ionicons } from '@expo/vector-icons'
-import { router } from 'expo-router'
+import { router, type Href } from 'expo-router'
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { useAuth } from '@/src/auth/AuthContext'
 import { colors } from '@/src/theme/colors'
-import { confirmAction, showMessage } from '@/src/utils/dialogs'
+import { confirmAction } from '@/src/utils/dialogs'
 import { roleLabel } from '@/src/utils/format'
 
 const MENU = [
@@ -38,7 +38,10 @@ export default function ProfileScreen() {
       router.push('/(tabs)/courts')
       return
     }
-    showMessage('Suporte', 'Envie um e-mail para suporte@lanceon.com.br')
+    if (key === 'help') {
+      router.push('/(tabs)/report' as Href)
+      return
+    }
   }
 
   return (

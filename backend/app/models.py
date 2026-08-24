@@ -223,3 +223,35 @@ class PlatformSettings(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class FeedbackReport(Base):
+    __tablename__ = "feedback_reports"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    message: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(16), default="new", index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+
+    user: Mapped["User"] = relationship()
+    images: Mapped[list["FeedbackImage"]] = relationship(
+        back_populates="report",
+        cascade="all, delete-orphan",
+    )
+
+
+class FeedbackImage(Base):
+    __tablename__ = "feedback_images"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    report_id: Mapped[int] = mapped_column(ForeignKey("feedback_reports.id"), index=True)
+    file_key: Mapped[str] = mapped_column(String(512))
+    content_type: Mapped[str] = mapped_column(String(128), default="image/jpeg")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    report: Mapped["FeedbackReport"] = relationship(back_populates="images")

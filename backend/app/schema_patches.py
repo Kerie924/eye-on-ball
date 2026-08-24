@@ -40,6 +40,47 @@ def ensure_user_columns() -> None:
         connection.execute(
             text(
                 """
+                CREATE TABLE IF NOT EXISTS feedback_reports (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL REFERENCES users(id),
+                    message TEXT NOT NULL,
+                    status VARCHAR(16) NOT NULL DEFAULT 'new',
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_feedback_reports_user_id ON feedback_reports (user_id)"
+            )
+        )
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_feedback_reports_status ON feedback_reports (status)"
+            )
+        )
+        connection.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS feedback_images (
+                    id SERIAL PRIMARY KEY,
+                    report_id INTEGER NOT NULL REFERENCES feedback_reports(id) ON DELETE CASCADE,
+                    file_key VARCHAR(512) NOT NULL,
+                    content_type VARCHAR(128) NOT NULL DEFAULT 'image/jpeg',
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_feedback_images_report_id ON feedback_images (report_id)"
+            )
+        )
+        connection.execute(
+            text(
+                """
                 DO $$
                 BEGIN
                     IF NOT EXISTS (

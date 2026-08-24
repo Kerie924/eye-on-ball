@@ -4,6 +4,7 @@ import type {
   Court,
   CourtAccess,
   CourtAccessRequest,
+  FeedbackSubmitResponse,
   Recording,
   TokenResponse,
   User,
@@ -183,6 +184,25 @@ export const api = {
         play_started_at: playStartedAt,
         play_ended_at: playEndedAt,
       }),
+    })
+  },
+
+  submitFeedback(
+    message: string,
+    images: { uri: string; name: string; type: string }[],
+  ) {
+    const body = new FormData()
+    body.append('message', message)
+    for (const image of images) {
+      body.append('images', {
+        uri: image.uri,
+        name: image.name,
+        type: image.type,
+      } as unknown as Blob)
+    }
+    return request<FeedbackSubmitResponse>('/api/feedback', {
+      method: 'POST',
+      body,
     })
   },
 }

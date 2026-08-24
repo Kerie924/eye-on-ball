@@ -115,6 +115,22 @@ export interface MessageResponse {
   message: string
 }
 
+export interface FeedbackImage {
+  id: number
+  url: string
+}
+
+export interface FeedbackReport {
+  id: number
+  user_id: number
+  user_name?: string | null
+  user_email?: string | null
+  message: string
+  status: 'new' | 'read' | string
+  created_at: string
+  images: FeedbackImage[]
+}
+
 export type ToastType = 'success' | 'error' | 'info'
 
 export interface Toast {
