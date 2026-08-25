@@ -16,10 +16,12 @@ from app.database import get_db
 from app.dependencies import get_current_user
 from app.emailer import email_configured, public_smtp_error, send_password_reset_email
 from app.firebase_auth import identity_from_auth_payload, verify_firebase_id_token
+from app.apple_auth import verify_apple_identity_token
 from app.google_app_page import google_app_html
 from app.reset_password_page import reset_password_html
 from app.models import User, UserRole
 from app.schemas import (
+    AppleAuthRequest,
     ForgotPasswordRequest,
     ForgotPasswordResponse,
     GoogleAuthRequest,
@@ -186,6 +188,50 @@ def google_login(payload: GoogleAuthRequest, db: Session = Depends(get_db)):
     return TokenResponse(access_token=create_access_token(user.id, user.role))
 
 
+@router.post("/apple", response_model=TokenResponse)
+def apple_login(payload: AppleAuthRequest, db: Session = Depends(get_db)):
+    claims = verify_apple_identity_token(payload.identity_token)
+    apple_id = str(claims["sub"])
+    email = (claims.get("email") or "").strip().lower()
+    full_name = (payload.full_name or "").strip() or email.split("@")[0] or "Atleta"
+
+    user = db.query(User).filter(User.apple_id == apple_id).first()
+    if not user and email:
+        user = db.query(User).filter(User.email == email).first()
+
+    if user:
+        if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Conta desativada",
+            )
+        user.apple_id = apple_id
+        if full_name and user.full_name in {"Atleta", email.split("@")[0]}:
+            user.full_name = full_name
+    else:
+        if not email:
+            email = f"apple-{apple_id[:12]}@privaterelay.appleid.com"
+        existing = db.query(User).filter(User.email == email).first()
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Este e-mail ja esta cadastrado",
+            )
+        user = User(
+            email=email,
+            password_hash=hash_password(token_urlsafe(24)),
+            full_name=full_name or "Atleta",
+            role=payload.role,
+            is_approved=payload.role == UserRole.athlete,
+            apple_id=apple_id,
+        )
+        db.add(user)
+
+    db.commit()
+    db.refresh(user)
+    return TokenResponse(access_token=create_access_token(user.id, user.role))
+
+
 @router.get("/me", response_model=UserResponse)
 def me(current_user: User = Depends(get_current_user)):
     return current_user
@@ -229,6 +275,28 @@ def update_me(
     db.commit()
     db.refresh(user)
     return user
+
+
+@router.delete("/me", response_model=MessageResponse)
+def delete_me(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    user = db.get(User, current_user.id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario nao encontrado")
+
+    user.is_active = False
+    user.email = f"deleted-{user.id}-{token_urlsafe(6).lower()}@lanceonpara.com.br"
+    user.full_name = "Conta excluida"
+    user.password_hash = hash_password(token_urlsafe(24))
+    user.google_id = None
+    user.apple_id = None
+    user.avatar_url = None
+    user.reset_token = None
+    user.reset_token_expires = None
+    db.commit()
+    return MessageResponse(message="Conta excluida")
 
 
 @router.post("/forgot-password", response_model=ForgotPasswordResponse)

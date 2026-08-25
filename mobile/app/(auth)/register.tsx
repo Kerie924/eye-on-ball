@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons'
 import { Link, router } from 'expo-router'
 import { useState } from 'react'
 import {
@@ -12,6 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { ApiError } from '@/src/api/client'
+import { isAppleAuthCancelled, signInWithApple } from '@/src/auth/appleAuth'
 import { useAuth } from '@/src/auth/AuthContext'
 import {
   describeAuthError,
@@ -19,24 +21,51 @@ import {
   isGoogleAuthConfigured,
   signInWithGoogle,
 } from '@/src/auth/googleAuth'
-import { Button } from '@/src/components/Button'
+import { AppleSignInButton } from '@/src/components/AppleSignInButton'
 import { BrandLogo } from '@/src/components/BrandLogo'
+import { Button } from '@/src/components/Button'
 import { Input } from '@/src/components/Input'
+import { LegalLinks } from '@/src/components/LegalLinks'
 import { colors } from '@/src/theme/colors'
 import type { UserRole } from '@/src/types'
 
 export default function RegisterScreen() {
-  const { register, loginWithGoogle } = useAuth()
+  const { register, loginWithGoogle, loginWithApple } = useAuth()
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [role, setRole] = useState<UserRole>('athlete')
+  const [acceptedTerms, setAcceptedTerms] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [googleLoading, setGoogleLoading] = useState(false)
+  const [appleLoading, setAppleLoading] = useState(false)
+
+  function requireTerms() {
+    if (acceptedTerms) {
+      return true
+    }
+    setError('Aceite a Politica de privacidade e os Termos de uso para continuar.')
+    return false
+  }
 
   async function handleRegister() {
     setError('')
+    if (!requireTerms()) {
+      return
+    }
+    if (fullName.trim().length < 2) {
+      setError('Informe seu nome completo.')
+      return
+    }
+    if (!email.trim()) {
+      setError('Informe um e-mail valido.')
+      return
+    }
+    if (password.length < 8) {
+      setError('A senha deve ter pelo menos 8 caracteres.')
+      return
+    }
     setLoading(true)
     try {
       await register({
@@ -55,10 +84,11 @@ export default function RegisterScreen() {
 
   async function handleGoogle() {
     setError('')
+    if (!requireTerms()) {
+      return
+    }
     if (!isGoogleAuthConfigured()) {
-      setError(
-        'Firebase Auth nao configurado. Defina EXPO_PUBLIC_FIREBASE_API_KEY, EXPO_PUBLIC_FIREBASE_PROJECT_ID e EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID.',
-      )
+      setError('Cadastro Google indisponivel no momento. Use e-mail e senha.')
       return
     }
     setGoogleLoading(true)
@@ -72,6 +102,25 @@ export default function RegisterScreen() {
       }
     } finally {
       setGoogleLoading(false)
+    }
+  }
+
+  async function handleApple() {
+    setError('')
+    if (!requireTerms()) {
+      return
+    }
+    setAppleLoading(true)
+    try {
+      const { identityToken, fullName: appleName } = await signInWithApple()
+      await loginWithApple(identityToken, appleName, role)
+      router.replace('/(tabs)')
+    } catch (err) {
+      if (!isAppleAuthCancelled(err)) {
+        setError(describeAuthError(err, 'Falha no cadastro Apple'))
+      }
+    } finally {
+      setAppleLoading(false)
     }
   }
 
@@ -104,6 +153,7 @@ export default function RegisterScreen() {
               value={password}
               onChangeText={setPassword}
               secureTextEntry
+              placeholder="Minimo 8 caracteres"
             />
 
             <View style={styles.roleGroup}>
@@ -122,6 +172,22 @@ export default function RegisterScreen() {
               </View>
             </View>
 
+            <View style={styles.termsRow}>
+              <Pressable
+                onPress={() => setAcceptedTerms((value) => !value)}
+                hitSlop={8}
+              >
+                <Ionicons
+                  name={acceptedTerms ? 'checkbox' : 'square-outline'}
+                  size={22}
+                  color={acceptedTerms ? colors.grass : colors.textMuted}
+                />
+              </Pressable>
+              <View style={styles.termsCopy}>
+                <LegalLinks prefix="Li e aceito a " align="left" />
+              </View>
+            </View>
+
             {error ? <Text style={styles.error}>{error}</Text> : null}
             <Button label="Cadastrar" loading={loading} onPress={handleRegister} />
 
@@ -131,10 +197,17 @@ export default function RegisterScreen() {
               <View style={styles.divider} />
             </View>
 
+            <AppleSignInButton
+              type="signUp"
+              disabled={appleLoading || googleLoading || loading}
+              onPress={() => void handleApple()}
+            />
+
             <Button
               label="Cadastrar com Google"
               variant="outline"
               loading={googleLoading}
+              disabled={appleLoading || loading}
               onPress={handleGoogle}
             />
 
@@ -205,6 +278,14 @@ const styles = StyleSheet.create({
   },
   form: {
     gap: 14,
+  },
+  termsRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  termsCopy: {
+    flex: 1,
   },
   roleGroup: {
     gap: 8,

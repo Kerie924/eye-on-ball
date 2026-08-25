@@ -1,11 +1,12 @@
-import { Redirect, router } from 'expo-router'
-import { ImageBackground, StyleSheet, Text, View } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient'
+import { Redirect, router } from 'expo-router'
+import { StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { useAuth } from '@/src/auth/AuthContext'
 import { BrandLogo } from '@/src/components/BrandLogo'
 import { Button } from '@/src/components/Button'
+import { LegalLinks } from '@/src/components/LegalLinks'
 import { LoadingState } from '@/src/components/LoadingState'
 import { colors } from '@/src/theme/colors'
 
@@ -22,36 +23,29 @@ export default function WelcomeScreen() {
 
   return (
     <View style={styles.root}>
-      <ImageBackground
-        source={{
-          uri: 'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=1200&q=80',
-        }}
+      <LinearGradient
+        colors={['#0a0a0a', '#0f1117', '#14532d']}
+        start={{ x: 0.15, y: 0 }}
+        end={{ x: 0.9, y: 1 }}
         style={styles.bg}
-        resizeMode="cover"
       >
-        <LinearGradient
-          colors={['rgba(15,17,23,0.35)', 'rgba(15,17,23,0.92)', '#0f1117']}
-          style={styles.overlay}
-        >
-          <SafeAreaView style={styles.safe}>
-            <View style={styles.brand}>
-              <BrandLogo variant="full" width={340} />
-              <Text style={styles.subtitle}>
-                Seu lance. Gravou. Compartilhou.
-              </Text>
-            </View>
+        <SafeAreaView style={styles.safe}>
+          <View style={styles.brand}>
+            <BrandLogo variant="full" width={340} />
+            <Text style={styles.subtitle}>Seu lance. Gravou. Compartilhou.</Text>
+          </View>
 
-            <View style={styles.actions}>
-              <Button label="Entrar" onPress={() => router.push('/(auth)/login')} />
-              <Button
-                label="Criar conta"
-                variant="outline"
-                onPress={() => router.push('/(auth)/register')}
-              />
-            </View>
-          </SafeAreaView>
-        </LinearGradient>
-      </ImageBackground>
+          <View style={styles.actions}>
+            <Button label="Entrar" onPress={() => router.push('/(auth)/login')} />
+            <Button
+              label="Criar conta"
+              variant="outline"
+              onPress={() => router.push('/(auth)/register')}
+            />
+            <LegalLinks />
+          </View>
+        </SafeAreaView>
+      </LinearGradient>
     </View>
   )
 }
@@ -62,9 +56,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.black,
   },
   bg: {
-    flex: 1,
-  },
-  overlay: {
     flex: 1,
   },
   safe: {

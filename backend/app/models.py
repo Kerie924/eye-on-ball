@@ -41,6 +41,7 @@ class User(Base):
     is_approved: Mapped[bool] = mapped_column(Boolean, default=True)
     avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     google_id: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
+    apple_id: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
     reset_token: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     reset_token_expires: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

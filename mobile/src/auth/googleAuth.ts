@@ -7,6 +7,7 @@ import {
   API_URL,
   FIREBASE_API_KEY,
   FIREBASE_PROJECT_ID,
+  GOOGLE_IOS_CLIENT_ID,
   GOOGLE_WEB_CLIENT_ID,
 } from '../config'
 import { getFirebaseAuth } from './firebase'
@@ -79,6 +80,7 @@ function configureGoogleSignIn(mod: GoogleSignInModule) {
 
   mod.GoogleSignin.configure({
     webClientId: GOOGLE_WEB_CLIENT_ID,
+    iosClientId: GOOGLE_IOS_CLIENT_ID || undefined,
     offlineAccess: false,
     scopes: ['openid', 'profile', 'email'],
   })

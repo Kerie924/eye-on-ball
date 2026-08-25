@@ -1,21 +1,25 @@
 import { Ionicons } from '@expo/vector-icons'
 import { router, type Href } from 'expo-router'
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
+import { ApiError } from '@/src/api/client'
 import { useAuth } from '@/src/auth/AuthContext'
+import { PRIVACY_URL, TERMS_URL } from '@/src/config'
 import { colors } from '@/src/theme/colors'
-import { confirmAction } from '@/src/utils/dialogs'
+import { confirmAction, showMessage } from '@/src/utils/dialogs'
 import { roleLabel } from '@/src/utils/format'
 
 const MENU = [
   { key: 'edit', label: 'Meu perfil', icon: 'person-outline' as const },
   { key: 'courts', label: 'Minhas quadras', icon: 'football-outline' as const },
   { key: 'help', label: 'Ajuda e suporte', icon: 'help-circle-outline' as const },
+  { key: 'privacy', label: 'Politica de privacidade', icon: 'shield-checkmark-outline' as const },
+  { key: 'terms', label: 'Termos de uso', icon: 'document-text-outline' as const },
 ]
 
 export default function ProfileScreen() {
-  const { user, logout } = useAuth()
+  const { user, logout, deleteAccount } = useAuth()
 
   async function handleLogout() {
     const confirmed = await confirmAction('Sair', 'Deseja encerrar sua sessao?', {
@@ -27,6 +31,29 @@ export default function ProfileScreen() {
     if (!confirmed) return
     await logout()
     router.replace('/(auth)/welcome')
+  }
+
+  async function handleDeleteAccount() {
+    const confirmed = await confirmAction(
+      'Excluir conta',
+      'Isso desativa sua conta e remove nome, e-mail e login social. Esta acao nao pode ser desfeita.',
+      {
+        destructive: true,
+        confirmLabel: 'Excluir conta',
+        cancelLabel: 'Cancelar',
+        tone: 'danger',
+      },
+    )
+    if (!confirmed) return
+    try {
+      await deleteAccount()
+      router.replace('/(auth)/welcome')
+    } catch (err) {
+      await showMessage(
+        'Nao foi possivel excluir',
+        err instanceof ApiError ? err.message : 'Tente de novo em instantes.',
+      )
+    }
   }
 
   function handleMenu(key: string) {
@@ -42,11 +69,18 @@ export default function ProfileScreen() {
       router.push('/(tabs)/report' as Href)
       return
     }
+    if (key === 'privacy') {
+      void Linking.openURL(PRIVACY_URL)
+      return
+    }
+    if (key === 'terms') {
+      void Linking.openURL(TERMS_URL)
+    }
   }
 
   return (
     <SafeAreaView style={styles.safe} edges={['bottom']}>
-      <View style={styles.content}>
+      <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.card}>
           {user?.avatar_url ? (
             <Image source={{ uri: user.avatar_url }} style={styles.avatarImage} />
@@ -75,10 +109,14 @@ export default function ProfileScreen() {
         </View>
 
         <View style={styles.menu}>
-          {MENU.map((item) => (
+          {MENU.map((item, index) => (
             <Pressable
               key={item.key}
-              style={({ pressed }) => [styles.menuItem, pressed && styles.menuPressed]}
+              style={({ pressed }) => [
+                styles.menuItem,
+                index === MENU.length - 1 && styles.menuItemLast,
+                pressed && styles.menuPressed,
+              ]}
               onPress={() => handleMenu(item.key)}
             >
               <View style={styles.menuLeft}>
@@ -97,7 +135,15 @@ export default function ProfileScreen() {
           <Ionicons name="log-out-outline" size={20} color={colors.danger} />
           <Text style={styles.logoutText}>Sair</Text>
         </Pressable>
-      </View>
+
+        <Pressable
+          style={({ pressed }) => [styles.deleteBtn, pressed && styles.menuPressed]}
+          onPress={() => void handleDeleteAccount()}
+        >
+          <Ionicons name="trash-outline" size={20} color={colors.danger} />
+          <Text style={styles.deleteText}>Excluir conta</Text>
+        </Pressable>
+      </ScrollView>
     </SafeAreaView>
   )
 }
@@ -108,9 +154,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.black,
   },
   content: {
-    flex: 1,
     padding: 20,
     gap: 16,
+    paddingBottom: 40,
   },
   card: {
     backgroundColor: colors.card,
@@ -199,6 +245,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.cardBorder,
   },
+  menuItemLast: {
+    borderBottomWidth: 0,
+  },
   menuPressed: {
     backgroundColor: colors.blackMuted,
   },
@@ -227,5 +276,17 @@ const styles = StyleSheet.create({
     color: colors.danger,
     fontWeight: '700',
     fontSize: 16,
+  },
+  deleteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+  },
+  deleteText: {
+    color: colors.danger,
+    fontWeight: '700',
+    fontSize: 15,
   },
 })

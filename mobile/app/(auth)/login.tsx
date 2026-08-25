@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { ApiError } from '@/src/api/client'
+import { isAppleAuthCancelled, signInWithApple } from '@/src/auth/appleAuth'
 import { useAuth } from '@/src/auth/AuthContext'
 import {
   describeAuthError,
@@ -19,21 +20,28 @@ import {
   isGoogleAuthConfigured,
   signInWithGoogle,
 } from '@/src/auth/googleAuth'
-import { Button } from '@/src/components/Button'
+import { AppleSignInButton } from '@/src/components/AppleSignInButton'
 import { BrandLogo } from '@/src/components/BrandLogo'
+import { Button } from '@/src/components/Button'
 import { Input } from '@/src/components/Input'
+import { LegalLinks } from '@/src/components/LegalLinks'
 import { colors } from '@/src/theme/colors'
 
 export default function LoginScreen() {
-  const { login, loginWithGoogle } = useAuth()
+  const { login, loginWithGoogle, loginWithApple } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [googleLoading, setGoogleLoading] = useState(false)
+  const [appleLoading, setAppleLoading] = useState(false)
 
   async function handleLogin() {
     setError('')
+    if (!email.trim() || !password) {
+      setError('Informe e-mail e senha.')
+      return
+    }
     setLoading(true)
     try {
       await login(email.trim(), password)
@@ -48,9 +56,7 @@ export default function LoginScreen() {
   async function handleGoogle() {
     setError('')
     if (!isGoogleAuthConfigured()) {
-      setError(
-        'Firebase Auth nao configurado. Defina EXPO_PUBLIC_FIREBASE_API_KEY, EXPO_PUBLIC_FIREBASE_PROJECT_ID e EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID.',
-      )
+      setError('Login Google indisponivel no momento. Use e-mail e senha.')
       return
     }
     setGoogleLoading(true)
@@ -64,6 +70,22 @@ export default function LoginScreen() {
       }
     } finally {
       setGoogleLoading(false)
+    }
+  }
+
+  async function handleApple() {
+    setError('')
+    setAppleLoading(true)
+    try {
+      const { identityToken, fullName } = await signInWithApple()
+      await loginWithApple(identityToken, fullName, 'athlete')
+      router.replace('/(tabs)')
+    } catch (err) {
+      if (!isAppleAuthCancelled(err)) {
+        setError(describeAuthError(err, 'Falha no login Apple'))
+      }
+    } finally {
+      setAppleLoading(false)
     }
   }
 
@@ -110,12 +132,20 @@ export default function LoginScreen() {
               <View style={styles.divider} />
             </View>
 
+            <AppleSignInButton
+              disabled={appleLoading || googleLoading || loading}
+              onPress={() => void handleApple()}
+            />
+
             <Button
               label="Continuar com Google"
               variant="outline"
               loading={googleLoading}
+              disabled={appleLoading || loading}
               onPress={handleGoogle}
             />
+
+            <LegalLinks />
 
             <Text style={styles.footer}>
               Nao tem conta?{' '}
@@ -196,4 +226,3 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 })
-

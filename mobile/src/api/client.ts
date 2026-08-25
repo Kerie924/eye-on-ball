@@ -124,6 +124,23 @@ export const api = {
     })
   },
 
+  appleLogin(identityToken: string, fullName: string | null, role: UserRole = 'athlete') {
+    return request<TokenResponse>('/api/auth/apple', {
+      method: 'POST',
+      body: JSON.stringify({
+        identity_token: identityToken,
+        full_name: fullName,
+        role,
+      }),
+    })
+  },
+
+  deleteAccount() {
+    return request<{ message: string }>('/api/auth/me', {
+      method: 'DELETE',
+    })
+  },
+
   me() {
     return request<User>('/api/auth/me')
   },

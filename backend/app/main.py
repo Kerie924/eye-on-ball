@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.cleanup import start_scheduler
 from app.database import Base, SessionLocal, engine
-from app.routers import admin, auth, cities, courts, devices, feedback, recordings
+from app.routers import admin, auth, cities, courts, devices, feedback, legal, recordings
 from app.routers import access as access_router
 from app.platform_settings import ensure_platform_settings
 from app.schema_patches import ensure_user_columns, seed_default_cities
@@ -48,6 +48,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router, prefix="/api")
+app.include_router(legal.router, prefix="/api")
 app.include_router(cities.router, prefix="/api")
 app.include_router(courts.router, prefix="/api")
 app.include_router(access_router.router, prefix="/api")

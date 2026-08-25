@@ -63,6 +63,12 @@ class GoogleAuthRequest(BaseModel):
     role: Literal[UserRole.athlete, UserRole.scout] = UserRole.athlete
 
 
+class AppleAuthRequest(BaseModel):
+    identity_token: str = Field(min_length=20)
+    full_name: str | None = Field(default=None, max_length=255)
+    role: Literal[UserRole.athlete, UserRole.scout] = UserRole.athlete
+
+
 class CourtCreate(BaseModel):
     name: str = Field(min_length=2, max_length=255)
     city_id: int

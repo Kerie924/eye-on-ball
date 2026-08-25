@@ -10,6 +10,7 @@ def ensure_user_columns() -> None:
     statements = [
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id VARCHAR(255)",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS apple_id VARCHAR(255)",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token VARCHAR(128)",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires TIMESTAMPTZ",
         "ALTER TABLE court_access_requests ADD COLUMN IF NOT EXISTS play_started_at TIMESTAMPTZ",
@@ -35,6 +36,11 @@ def ensure_user_columns() -> None:
         connection.execute(
             text(
                 "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_google_id ON users (google_id)"
+            )
+        )
+        connection.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_apple_id ON users (apple_id)"
             )
         )
         connection.execute(

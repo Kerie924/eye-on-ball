@@ -20,6 +20,11 @@ interface AuthContextValue {
   loading: boolean
   login: (email: string, password: string) => Promise<void>
   loginWithGoogle: (idToken: string, role?: UserRole) => Promise<void>
+  loginWithApple: (
+    identityToken: string,
+    fullName?: string | null,
+    role?: UserRole,
+  ) => Promise<void>
   register: (payload: {
     email: string
     password: string
@@ -27,6 +32,7 @@ interface AuthContextValue {
     role: UserRole
   }) => Promise<void>
   logout: () => Promise<void>
+  deleteAccount: () => Promise<void>
   refreshUser: () => Promise<void>
   updateProfile: (payload: {
     full_name?: string
@@ -94,6 +100,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [applyToken],
   )
 
+  const loginWithApple = useCallback(
+    async (identityToken: string, fullName: string | null = null, role: UserRole = 'athlete') => {
+      const { access_token } = await api.appleLogin(identityToken, fullName, role)
+      await applyToken(access_token)
+    },
+    [applyToken],
+  )
+
   const register = useCallback(
     async (payload: {
       email: string
@@ -113,6 +127,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAuthToken(null)
     setUser(null)
   }, [])
+
+  const deleteAccount = useCallback(async () => {
+    await api.deleteAccount()
+    await logout()
+  }, [logout])
 
   const updateProfile = useCallback(
     async (payload: {
@@ -134,12 +153,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       login,
       loginWithGoogle,
+      loginWithApple,
       register,
       logout,
+      deleteAccount,
       refreshUser,
       updateProfile,
     }),
-    [user, loading, login, loginWithGoogle, register, logout, refreshUser, updateProfile],
+    [
+      user,
+      loading,
+      login,
+      loginWithGoogle,
+      loginWithApple,
+      register,
+      logout,
+      deleteAccount,
+      refreshUser,
+      updateProfile,
+    ],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
