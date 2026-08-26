@@ -81,8 +81,20 @@ class CaptureService:
         logger.info("Capture service started for %s camera(s)", len(self.config.cameras))
 
     def handle_all_cameras(self) -> None:
-        for camera_index in sorted(self.recorders):
-            self.handle_trigger(camera_index)
+        logger.info("Court button: recording %s camera(s) in parallel", len(self.recorders))
+        threads = [
+            threading.Thread(
+                target=self.handle_trigger,
+                args=(camera_index,),
+                name=f"trigger-cam-{camera_index}",
+                daemon=True,
+            )
+            for camera_index in sorted(self.recorders)
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
 
     def handle_trigger(self, camera_index: int) -> None:
         lock = self._camera_locks.get(camera_index)
@@ -142,29 +154,65 @@ class CaptureService:
 
     def _heartbeat_loop(self) -> None:
         while not self._stop.is_set():
+            threads = []
             for camera in self.config.cameras:
-                try:
-                    self.api.heartbeat(camera.index)
-                except Exception:
-                    logger.exception("Heartbeat failed for camera %s", camera.index)
+                thread = threading.Thread(
+                    target=self._heartbeat_one,
+                    args=(camera.index,),
+                    name=f"heartbeat-cam-{camera.index}",
+                    daemon=True,
+                )
+                thread.start()
+                threads.append(thread)
+            for thread in threads:
+                thread.join()
             self._stop.wait(self.config.heartbeat_seconds)
+
+    def _heartbeat_one(self, camera_index: int) -> None:
+        try:
+            self.api.heartbeat(camera_index)
+        except Exception as exc:
+            logger.warning(
+                "Heartbeat failed for camera %s (%s). Recording still works locally; "
+                "upload needs internet to %s",
+                camera_index,
+                exc.__class__.__name__,
+                self.config.api_url,
+            )
 
     def _remote_trigger_loop(self) -> None:
         """Poll backend for mobile PRONTO / remote capture requests."""
         while not self._stop.is_set():
             try:
                 pending = self.api.claim_pending_triggers()
+                threads = []
                 for item in pending:
                     camera_index = int(item.get("camera_index", 0))
-                    if camera_index in self.recorders:
-                        logger.info(
-                            "Remote trigger #%s for camera %s",
+                    if camera_index not in self.recorders:
+                        logger.warning(
+                            "Remote trigger #%s for unknown camera %s (configured: %s)",
                             item.get("id"),
                             camera_index,
+                            sorted(self.recorders),
                         )
-                        self.handle_trigger(camera_index)
-            except Exception:
-                logger.exception("Failed to poll remote triggers")
+                        continue
+                    logger.info(
+                        "Remote trigger #%s for camera %s",
+                        item.get("id"),
+                        camera_index,
+                    )
+                    thread = threading.Thread(
+                        target=self.handle_trigger,
+                        args=(camera_index,),
+                        name=f"trigger-cam-{camera_index}",
+                        daemon=True,
+                    )
+                    thread.start()
+                    threads.append(thread)
+                for thread in threads:
+                    thread.join()
+            except Exception as exc:
+                logger.warning("Failed to poll remote triggers (%s)", exc.__class__.__name__)
             self._stop.wait(1.5)
 
     def stop(self) -> None:

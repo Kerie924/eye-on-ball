@@ -1,10 +1,17 @@
 import logging
+import time
 from datetime import datetime
 from pathlib import Path
 
 import requests
 
 logger = logging.getLogger(__name__)
+
+# (connect timeout, read timeout) — fail fast on a dead WAN, wait longer for uploads.
+_HEARTBEAT_TIMEOUT = (8, 15)
+_POLL_TIMEOUT = (8, 15)
+_UPLOAD_RETRIES = 3
+_UPLOAD_RETRY_DELAY = 3
 
 
 class ApiClient:
@@ -19,7 +26,7 @@ class ApiClient:
             f"{self.api_url}/api/devices/heartbeat",
             json={"camera_index": camera_index},
             headers=self.headers,
-            timeout=15,
+            timeout=_HEARTBEAT_TIMEOUT,
         )
         response.raise_for_status()
 
@@ -27,7 +34,7 @@ class ApiClient:
         response = requests.get(
             f"{self.api_url}/api/devices/pending-triggers",
             headers=self.headers,
-            timeout=15,
+            timeout=_POLL_TIMEOUT,
         )
         response.raise_for_status()
         payload = response.json()
@@ -39,25 +46,43 @@ class ApiClient:
         clip_path: Path,
         triggered_at: datetime,
     ) -> dict:
-        with clip_path.open("rb") as handle:
-            response = requests.post(
-                f"{self.api_url}/api/recordings/upload",
-                headers=self.headers,
-                data={
-                    "camera_index": str(camera_index),
-                    "triggered_at": triggered_at.isoformat(),
-                },
-                files={"file": (clip_path.name, handle, "video/mp4")},
-                timeout=self.timeout,
-            )
-        response.raise_for_status()
-        payload = response.json()
-        logger.info(
-            "Uploaded recording #%s for camera %s",
-            payload.get("id"),
-            camera_index,
-        )
-        return payload
+        last_error: Exception | None = None
+        for attempt in range(1, _UPLOAD_RETRIES + 1):
+            try:
+                with clip_path.open("rb") as handle:
+                    response = requests.post(
+                        f"{self.api_url}/api/recordings/upload",
+                        headers=self.headers,
+                        data={
+                            "camera_index": str(camera_index),
+                            "triggered_at": triggered_at.isoformat(),
+                        },
+                        files={"file": (clip_path.name, handle, "video/mp4")},
+                        timeout=(15, self.timeout),
+                    )
+                response.raise_for_status()
+                payload = response.json()
+                logger.info(
+                    "Uploaded recording #%s for camera %s",
+                    payload.get("id"),
+                    camera_index,
+                )
+                return payload
+            except (requests.ConnectionError, requests.Timeout) as exc:
+                last_error = exc
+                if attempt >= _UPLOAD_RETRIES:
+                    break
+                logger.warning(
+                    "Upload for camera %s failed (%s); retry %s/%s in %ss",
+                    camera_index,
+                    exc.__class__.__name__,
+                    attempt,
+                    _UPLOAD_RETRIES,
+                    _UPLOAD_RETRY_DELAY,
+                )
+                time.sleep(_UPLOAD_RETRY_DELAY)
+        assert last_error is not None
+        raise last_error
 
     def health_check(self) -> bool:
         try:
