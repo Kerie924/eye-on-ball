@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Lance On — Instalacao
+Comment=Instalar o gravador da quadra
+Exec=bash -c 'cd "$(dirname "$(readlink -f "%k")")" && ./LanceOn-Setup.sh'
+Icon=camera-photo
+Terminal=false
+Categories=Utility;
+StartupNotify=true

@@ -5,23 +5,24 @@
 | Onde | O que | Como o cliente usa |
 |------|--------|-------------------|
 | **Nuvem (AWS)** | API + admin | Abrir o **link no navegador** (Chrome). Nada para instalar no PC da quadra. |
-| **Mini PC (Pi)** | Agente de captura | **Um comando** na instalacao; depois liga sozinho com o sistema. |
-
-Nao usamos `.bat` ou `.exe` no Mini PC porque ele roda **Linux (Ubuntu)**, nao Windows.
+| **Mini PC (Ubuntu)** | Agente de captura | **Um clique** no Setup App; depois liga sozinho com o sistema. |
 
 ## Instalacao simples (recomendado)
 
-1. Copie a pasta `capture` para o Mini PC (USB, git ou scp).
-2. Abra o terminal na pasta `capture`.
-3. Execute:
+1. Copie a pasta `capture` para o Mini PC (USB).
+2. Clique duas vezes em **`LanceOn-Setup.sh`** (ou no atalho `LanceOn-Setup.desktop`).
+   - Se o Ubuntu pedir, escolha **Permitir iniciar** / **Allow Launching**.
+3. Preencha a chave do dispositivo, IPs das cameras, usuario/senha e (opcional) a marca d'agua.
+4. Clique **Instalar e iniciar** e informe a senha de administrador quando o Ubuntu pedir.
+5. O Setup instala sozinho FFmpeg, Python, GPIO e o servico `lanceon-capture`.
+
+Se o clique duplo nao abrir, no terminal:
 
 ```bash
-chmod +x setup.sh
-./setup.sh
+cd capture
+chmod +x LanceOn-Setup.sh
+./LanceOn-Setup.sh
 ```
-
-4. Responda as perguntas (URL da API, chave do admin, IP da camera, senha).
-5. Pronto. Reinicie o Mini PC se quiser testar o arranque automatico.
 
 ## Depois da instalacao
 
@@ -43,12 +44,6 @@ Configuracao: `/etc/lance-on/config.yaml`
 
 Hoje: a gravacao precisa de internet para **enviar** o video para a nuvem. O buffer local (ultimos 30 s) funciona offline; o envio falha se a API estiver fora.
 
-**Proxima melhoria:** fila local — guardar clips no disco e enviar quando a conexao voltar.
-
 ## Painel admin
 
-O cliente **nao** instala o admin no Mini PC. Use o endereco que voce configurou, por exemplo:
-
-`http://13.210.97.155:8000` (API) + painel React hospedado ou `npm run dev` no seu PC de desenvolvimento apontando para essa API.
-
-Para producao, o ideal e um dominio HTTPS (ex.: `https://admin.lanceon.com.br`).
+O cliente **nao** instala o admin no Mini PC. Use `https://lanceonpara.com.br` (admin) e `https://api.lanceonpara.com.br` (API).

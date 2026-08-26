@@ -98,7 +98,8 @@
             "usesCleartextTraffic": false
           }
         }
-      ]
+      ],
+      "./plugins/withGradleWrapperTimeout.js"
     ],
     "experiments": {
       "typedRoutes": true
