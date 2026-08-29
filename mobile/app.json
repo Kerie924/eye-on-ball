@@ -24,11 +24,15 @@
         "NSPrivacyAccessedAPITypes": [
           {
             "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
-            "NSPrivacyAccessedAPITypeReasons": ["CA92.1"]
+            "NSPrivacyAccessedAPITypeReasons": [
+              "CA92.1"
+            ]
           },
           {
             "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryFileTimestamp",
-            "NSPrivacyAccessedAPITypeReasons": ["C617.1"]
+            "NSPrivacyAccessedAPITypeReasons": [
+              "C617.1"
+            ]
           }
         ]
       }
@@ -107,9 +111,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "76277afa-3b79-4634-849e-fa38453df6f2"
+        "projectId": "b6866aa2-35c3-4bbb-8fcc-4e5ba55c61e0"
       }
     },
-    "owner": "dante0924s-team"
+    "owner": "kerie0924s-team"
   }
 }

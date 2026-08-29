@@ -42,31 +42,34 @@ if [ -z "$CAM_PASS" ]; then
   exit 1
 fi
 
+read -r -p "Um botao fisico por camera? (s/n) [s]: " USE_GPIO
+USE_GPIO="${USE_GPIO:-s}"
+
 CAMERAS_YAML=""
+GPIO_PINS=(17 27 22 23 24 25)
+PHYS_PINS=(11 13 15 16 18 22)
 for i in $(seq 1 "$CAMERA_COUNT"); do
   default_ip="192.168.15.1$((i + 9))"
   read -r -p "  IP da camera $i [$default_ip]: " CAM_IP
   CAM_IP="${CAM_IP:-$default_ip}"
   RTSP="rtsp://${CAM_USER}:${CAM_PASS}@${CAM_IP}:554/cam/realmonitor?channel=1&subtype=0"
+  gpio="${GPIO_PINS[$((i - 1))]}"
+  phys="${PHYS_PINS[$((i - 1))]}"
+  if [[ "$USE_GPIO" =~ ^[sS] ]]; then
+    BUTTON_LINES="    button:
+      type: gpio
+      pin: ${gpio}  # camera ${i} — physical pin ${phys} + GND"
+  else
+    BUTTON_LINES="    button:
+      type: none"
+  fi
   CAMERAS_YAML="${CAMERAS_YAML}
   - index: ${i}
     name: Camera ${i}
     rtsp_url: \"${RTSP}\"
+${BUTTON_LINES}
 "
 done
-
-read -r -p "Botao fisico no GPIO17? (s/n) [s]: " USE_GPIO
-USE_GPIO="${USE_GPIO:-s}"
-
-if [[ "$USE_GPIO" =~ ^[sS] ]]; then
-  BUTTON_BLOCK="button:
-  type: gpio
-  pin: 17"
-else
-  BUTTON_BLOCK="# button:
-  # type: gpio
-  # pin: 17"
-fi
 
 echo ""
 echo "Instalando pacotes e servico..."
@@ -87,8 +90,7 @@ segment_seconds: 10
 heartbeat_seconds: 60
 button_cooldown_seconds: 3
 
-${BUTTON_BLOCK}
-
+# One physical button per camera (see button.pin under each camera).
 cameras:${CAMERAS_YAML}
 data_dir: /var/lib/lance-on
 

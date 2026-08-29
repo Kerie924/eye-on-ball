@@ -14,21 +14,22 @@ button_cooldown_seconds: 3
 # Bottom ad banner burned into every uploaded clip
 watermark_path: assets/video-watermark.jpeg
 
-# One court button records ALL cameras (GPIO17 / physical pin 11).
-# Idle HIGH, press = LOW to GND.
-button:
-  type: gpio
-  pin: 17
-
-# Add 1–6 cameras. Comment out unused cameras.
+# Add 1–6 cameras. Each camera can have its own GPIO button (idle HIGH, press = LOW to GND).
+# Default pins: cam1 GPIO17/pin11, cam2 GPIO27/pin13, cam3 GPIO22/pin15, etc.
 cameras:
   - index: 1
     name: Camera 1
     rtsp_url: rtsp://admin:password@192.168.1.101:554/cam/realmonitor?channel=1&subtype=0
+    button:
+      type: gpio
+      pin: 17
 
   - index: 2
     name: Camera 2
     rtsp_url: rtsp://admin:password@192.168.1.102:554/cam/realmonitor?channel=1&subtype=0
+    button:
+      type: gpio
+      pin: 27
 
   # - index: 3
   #   name: Camera 3

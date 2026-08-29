@@ -109,7 +109,7 @@ class SetupApp(tk.Tk):
 
         tk.Checkbutton(
             form,
-            text="Botao fisico no GPIO17 (Mini PC / Raspberry Pi)",
+            text="Um botao fisico por camera (GPIO17, GPIO27, ... no Mini PC)",
             variable=self.use_gpio,
             fg=FG,
             bg=CARD,

@@ -27,8 +27,14 @@ chmod +x LanceOn-Setup.sh
 ## Depois da instalacao
 
 - **Arranque automatico:** servico `lanceon-capture` (systemd).
-- **Botao fisico:** GPIO17 (pino 11) + GND.
-- **Admin Gravar / app PRONTO:** mesma funcao que o botao.
+- **Botoes fisicos:** um por camera (sinal no GPIO + GND). Padrao:
+  - Camera 1: GPIO17 (pino **11**) + GND (ex.: pino **9**)
+  - Camera 2: GPIO27 (pino **13**) + GND (ex.: pino **14**)
+  - Camera 3: GPIO22 (pino 15) + GND
+  - Camera 4: GPIO23 (pino 16) + GND
+  - Camera 5: GPIO24 (pino 18) + GND
+  - Camera 6: GPIO25 (pino 22) + GND
+- **Admin Gravar / app PRONTO:** gravam todas as cameras (como antes).
 
 Comandos uteis:
 
