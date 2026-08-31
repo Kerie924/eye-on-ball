@@ -28,8 +28,8 @@ chmod +x LanceOn-Setup.sh
 
 - **Arranque automatico:** servico `lanceon-capture` (systemd).
 - **Botoes fisicos:** um por camera (sinal no GPIO + GND). Padrao:
-  - Camera 1: GPIO17 (pino **11**) + GND (ex.: pino **9**)
-  - Camera 2: GPIO27 (pino **13**) + GND (ex.: pino **14**)
+  - Camera 1: GPIO17 (pino **11**) + pino **9** (GND)
+  - Camera 2: GPIO22 (pino **15**) + pino **13** (nao usar pino 14)
   - Camera 3: GPIO22 (pino 15) + GND
   - Camera 4: GPIO23 (pino 16) + GND
   - Camera 5: GPIO24 (pino 18) + GND

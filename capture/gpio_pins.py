@@ -1,10 +1,11 @@
 """Default GPIO button assignment per camera (BCM numbering)."""
 
 # camera_index -> (bcm_gpio, physical_pin_on_40pin_header)
+# Camera 2: button wired on physical pins 13 and 15 (signal = GPIO 22 on pin 15).
 CAMERA_GPIO: dict[int, tuple[int, int]] = {
     1: (17, 11),
-    2: (27, 13),
-    3: (22, 15),
+    2: (22, 15),
+    3: (27, 13),
     4: (23, 16),
     5: (24, 18),
     6: (25, 22),
@@ -25,5 +26,5 @@ def camera_button_yaml(camera_index: int, *, enabled: bool = True) -> str:
     return (
         f"    button:\n"
         f"      type: gpio\n"
-        f"      pin: {pin}  # camera {camera_index} — physical pin {physical} + GND"
+        f"      pin: {pin}  # camera {camera_index} — BCM GPIO {pin}, header pin {physical}"
     )

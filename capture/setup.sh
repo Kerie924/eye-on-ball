@@ -46,8 +46,8 @@ read -r -p "Um botao fisico por camera? (s/n) [s]: " USE_GPIO
 USE_GPIO="${USE_GPIO:-s}"
 
 CAMERAS_YAML=""
-GPIO_PINS=(17 27 22 23 24 25)
-PHYS_PINS=(11 13 15 16 18 22)
+GPIO_PINS=(17 22 27 23 24 25)
+PHYS_PINS=(11 15 13 16 18 22)
 for i in $(seq 1 "$CAMERA_COUNT"); do
   default_ip="192.168.15.1$((i + 9))"
   read -r -p "  IP da camera $i [$default_ip]: " CAM_IP
