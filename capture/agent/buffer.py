@@ -242,7 +242,10 @@ def _render_final_clip_simple(
     clip_seconds: int,
     watermark_path: Path,
 ) -> None:
-    """Bottom-centered banner (~82% width). Matches Meu Replay style ads."""
+    """Bottom-centered watermark (~28% of frame height). Larger than the old thin banner."""
+    # Height-based scale works for both wide banners and square logos.
+    scale_h = "main_h*0.28"
+    fallback_h = "300"
     command = [
         "ffmpeg",
         "-hide_banner",
@@ -258,8 +261,8 @@ def _render_final_clip_simple(
         "-filter_complex",
         (
             f"[0:v]trim=duration={clip_seconds},setpts=PTS-STARTPTS[base];"
-            "[1:v][base]scale2ref=w=main_w*0.82:h=ow/mdar[wm][v];"
-            "[v][wm]overlay=(W-w)/2:H-h-8[out]"
+            f"[1:v][base]scale2ref=h={scale_h}:w=oh*mdar[wm][v];"
+            "[v][wm]overlay=(W-w)/2:H-h-12[out]"
         ),
         "-map",
         "[out]",
@@ -280,8 +283,8 @@ def _render_final_clip_simple(
     ]
     result = subprocess.run(command, capture_output=True, text=True, check=False)
     if result.returncode != 0:
-        # Older ffmpeg: fixed-width scale fallback
-        logger.warning("scale2ref failed; using fixed watermark width")
+        # Older ffmpeg: fixed-height scale fallback
+        logger.warning("scale2ref failed; using fixed watermark height")
         command = [
             "ffmpeg",
             "-hide_banner",
@@ -297,8 +300,8 @@ def _render_final_clip_simple(
             "-filter_complex",
             (
                 f"[0:v]trim=duration={clip_seconds},setpts=PTS-STARTPTS[base];"
-                "[1:v]scale=1100:-1[wm];"
-                "[base][wm]overlay=(W-w)/2:H-h-8[out]"
+                f"[1:v]scale=-1:{fallback_h}[wm];"
+                "[base][wm]overlay=(W-w)/2:H-h-12[out]"
             ),
             "-map",
             "[out]",
