@@ -97,16 +97,18 @@ class ButtonListener:
             self._run_mock()
             return
 
+        gnd_pin = self.button.gnd_pin
         logger.info(
-            "Listening GPIO pin %s (HIGH idle, LOW press) for camera %s",
+            "Listening GPIO pin %s (HIGH idle, LOW press) for camera %s%s",
             pin,
             self.camera.index,
+            f"; driving GPIO {gnd_pin} LOW as GND" if gnd_pin is not None else "",
         )
         try:
             if hasattr(gpiod, "request_lines"):
-                self._run_gpio_v2(gpiod, pin)
+                self._run_gpio_v2(gpiod, pin, gnd_pin)
             else:
-                self._run_gpio_v1(gpiod, pin)
+                self._run_gpio_v1(gpiod, pin, gnd_pin)
         except Exception:
             logger.exception("GPIO listener failed for camera %s; falling back to mock", self.camera.index)
             self._run_mock()
@@ -118,14 +120,17 @@ class ButtonListener:
         time.sleep(0.08)
         return reread() == 0
 
-    def _run_gpio_v2(self, gpiod, pin: int) -> None:
+    def _run_gpio_v2(self, gpiod, pin: int, gnd_pin: int | None = None) -> None:
         from gpiod.line import Bias, Direction, Value
 
         settings = gpiod.LineSettings(direction=Direction.INPUT, bias=Bias.PULL_UP)
+        config = {pin: settings}
+        if gnd_pin is not None:
+            config[gnd_pin] = gpiod.LineSettings(direction=Direction.OUTPUT, output_value=Value.INACTIVE)
         request = gpiod.request_lines(
             "/dev/gpiochip0",
             consumer=f"lanceon-cam{self.camera.index}",
-            config={pin: settings},
+            config=config,
         )
 
         def read() -> int:
@@ -140,8 +145,15 @@ class ButtonListener:
             previous = current
             time.sleep(0.02)
 
-    def _run_gpio_v1(self, gpiod, pin: int) -> None:
+    def _run_gpio_v1(self, gpiod, pin: int, gnd_pin: int | None = None) -> None:
         chip = gpiod.Chip("gpiochip0")
+        if gnd_pin is not None:
+            gnd_line = chip.get_line(gnd_pin)
+            gnd_line.request(
+                consumer=f"lanceon-cam{self.camera.index}-gnd",
+                type=gpiod.LINE_REQ_DIR_OUT,
+                default_vals=[0],
+            )
         line = chip.get_line(pin)
         flags = 0
         if hasattr(gpiod, "LINE_REQ_FLAG_BIAS_PULL_UP"):

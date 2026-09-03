@@ -13,6 +13,7 @@ class ButtonConfig:
     baudrate: int = 115200
     trigger_on: str = "1"
     pin: int | None = None
+    gnd_pin: int | None = None
     mock_file: str | None = None
 
     @property
@@ -61,6 +62,7 @@ def _parse_button(raw: dict | None, default_trigger: str = "1") -> ButtonConfig:
         baudrate=int(button_raw.get("baudrate", 115200)),
         trigger_on=str(button_raw.get("trigger_on", default_trigger)),
         pin=button_raw.get("pin"),
+        gnd_pin=button_raw.get("gnd_pin"),
         mock_file=button_raw.get("mock_file"),
     )
 

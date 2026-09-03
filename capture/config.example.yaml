@@ -30,6 +30,7 @@ cameras:
     button:
       type: gpio
       pin: 22
+      gnd_pin: 27
 
   # - index: 3
   #   name: Camera 3
