@@ -3,12 +3,14 @@ import signal
 import sys
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 
 from agent.api_client import ApiClient
 from agent.buffer import BufferRecorder, build_clip, clip_trigger_time
 from agent.buttons import ButtonListener
 from agent.config import AgentConfig, CameraConfig, load_config
+from agent.upload_queue import UploadQueue
 
 logger = logging.getLogger(__name__)
 
@@ -17,10 +19,17 @@ class CaptureService:
     def __init__(self, config: AgentConfig) -> None:
         self.config = config
         self.api = ApiClient(config.api_url, config.device_key)
+        self.queue = UploadQueue(
+            config.data_dir,
+            max_hours=config.queue_max_hours,
+            max_mb=config.queue_max_mb,
+        )
         self.recorders: dict[int, BufferRecorder] = {}
         self.listeners: list[ButtonListener] = []
         self._stop = threading.Event()
+        self._upload_ready = threading.Event()
         self._heartbeat_thread: threading.Thread | None = None
+        self._upload_thread: threading.Thread | None = None
         self._camera_locks: dict[int, threading.Lock] = {}
 
     def start(self) -> None:
@@ -78,6 +87,16 @@ class CaptureService:
         )
         self._remote_thread.start()
 
+        recovered = self.queue.recover_orphans([camera.index for camera in self.config.cameras])
+        self.queue.prune()
+        if recovered or self.queue.next_job():
+            self._upload_ready.set()
+
+        self._upload_thread = threading.Thread(
+            target=self._upload_loop, daemon=True, name="upload-queue"
+        )
+        self._upload_thread.start()
+
         logger.info("Capture service started for %s camera(s)", len(self.config.cameras))
 
     def handle_all_cameras(self) -> None:
@@ -102,7 +121,7 @@ class CaptureService:
             logger.error("No recorder found for camera %s", camera_index)
             return
         if not lock.acquire(blocking=False):
-            logger.warning("Upload already in progress; ignoring trigger for camera %s", camera_index)
+            logger.warning("Clip already being built; ignoring trigger for camera %s", camera_index)
             return
 
         try:
@@ -128,7 +147,7 @@ class CaptureService:
 
             clip_segments = segments[-needed:] if len(segments) >= needed else segments
             clips_dir = self.config.data_dir / f"camera-{camera_index}" / "clips"
-            clip_path = clips_dir / f"clip_{int(time.time())}.mp4"
+            clip_path = clips_dir / f"clip_{int(time.time())}_{camera_index}.mp4"
 
             logger.info(
                 "Building %ss clip for camera %s from %s segments (watermark=%s)",
@@ -144,9 +163,8 @@ class CaptureService:
                 watermark_path=self.config.watermark_path,
             )
             triggered_at = clip_trigger_time(clip_segments)
-
-            self.api.upload_recording(camera_index, clip_path, triggered_at)
-            clip_path.unlink(missing_ok=True)
+            self.queue.enqueue(camera_index, clip_path, triggered_at)
+            self._upload_ready.set()
         except Exception:
             logger.exception("Failed to process trigger for camera %s", camera_index)
         finally:
@@ -179,6 +197,47 @@ class CaptureService:
                 exc.__class__.__name__,
                 self.config.api_url,
             )
+
+    def _upload_loop(self) -> None:
+        """Send queued clips when the API is reachable. Never delete until upload succeeds."""
+        while not self._stop.is_set():
+            self.queue.prune()
+            job = self.queue.next_job()
+            if not job:
+                self._upload_ready.clear()
+                self._upload_ready.wait(timeout=self.config.upload_retry_seconds)
+                continue
+
+            clip_path = Path(job["clip_path"])
+            if not clip_path.exists():
+                self.queue.mark_uploaded(job["id"])
+                continue
+
+            try:
+                triggered_at = datetime.fromisoformat(job["triggered_at"])
+                self.api.upload_recording(
+                    int(job["camera_index"]),
+                    clip_path,
+                    triggered_at,
+                    retries=1,
+                )
+                self.queue.mark_uploaded(job["id"])
+                logger.info(
+                    "Uploaded queued clip %s for camera %s",
+                    job["id"],
+                    job["camera_index"],
+                )
+            except Exception as exc:
+                self.queue.mark_failed(job["id"], exc.__class__.__name__)
+                logger.warning(
+                    "Queued clip %s for camera %s not uploaded (%s). "
+                    "Kept on disk; retry in %ss",
+                    job["id"],
+                    job["camera_index"],
+                    exc.__class__.__name__,
+                    self.config.upload_retry_seconds,
+                )
+                self._stop.wait(self.config.upload_retry_seconds)
 
     def _remote_trigger_loop(self) -> None:
         """Poll backend for mobile PRONTO / remote capture requests."""
@@ -225,6 +284,9 @@ class CaptureService:
             self._heartbeat_thread.join(timeout=2)
         if getattr(self, "_remote_thread", None):
             self._remote_thread.join(timeout=2)
+        self._upload_ready.set()
+        if getattr(self, "_upload_thread", None):
+            self._upload_thread.join(timeout=2)
         logger.info("Capture service stopped")
 
     def wait(self) -> None:

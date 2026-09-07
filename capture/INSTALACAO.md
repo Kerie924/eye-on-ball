@@ -48,7 +48,7 @@ Configuracao: `/etc/lance-on/config.yaml`
 
 ## Sem internet
 
-Hoje: a gravacao precisa de internet para **enviar** o video para a nuvem. O buffer local (ultimos 30 s) funciona offline; o envio falha se a API estiver fora.
+O botao grava o clip no Mini PC mesmo sem internet. Os arquivos ficam em `/var/lib/lance-on/upload-queue/` e sao enviados quando a API voltar; so sao apagados depois do upload. Clips com mais de 48 h (ou se o disco passar de 4 GB) sao descartados. O app so mostra o video depois que ele chegar na nuvem.
 
 ## Painel admin
 

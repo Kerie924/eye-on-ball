@@ -42,6 +42,9 @@ class AgentConfig:
     cameras: list[CameraConfig]
     court_button: ButtonConfig | None = None
     watermark_path: Path | None = None
+    queue_max_hours: int = 48
+    queue_max_mb: int = 4096
+    upload_retry_seconds: int = 20
 
     @property
     def segment_count(self) -> int:
@@ -123,4 +126,7 @@ def load_config(path: str | Path) -> AgentConfig:
         cameras=cameras,
         court_button=court_button,
         watermark_path=watermark_path,
+        queue_max_hours=int(raw.get("queue_max_hours", 48)),
+        queue_max_mb=int(raw.get("queue_max_mb", 4096)),
+        upload_retry_seconds=int(raw.get("upload_retry_seconds", 20)),
     )

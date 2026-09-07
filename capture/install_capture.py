@@ -142,6 +142,9 @@ clip_seconds: 30
 segment_seconds: 10
 heartbeat_seconds: 60
 button_cooldown_seconds: 3
+queue_max_hours: 48
+queue_max_mb: 4096
+upload_retry_seconds: 20
 
 # One physical button per camera (see button.pin under each camera).
 cameras:

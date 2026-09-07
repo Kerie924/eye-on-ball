@@ -45,9 +45,11 @@ class ApiClient:
         camera_index: int,
         clip_path: Path,
         triggered_at: datetime,
+        retries: int = _UPLOAD_RETRIES,
     ) -> dict:
         last_error: Exception | None = None
-        for attempt in range(1, _UPLOAD_RETRIES + 1):
+        attempts = max(1, retries)
+        for attempt in range(1, attempts + 1):
             try:
                 with clip_path.open("rb") as handle:
                     response = requests.post(
@@ -70,14 +72,14 @@ class ApiClient:
                 return payload
             except (requests.ConnectionError, requests.Timeout) as exc:
                 last_error = exc
-                if attempt >= _UPLOAD_RETRIES:
+                if attempt >= attempts:
                     break
                 logger.warning(
                     "Upload for camera %s failed (%s); retry %s/%s in %ss",
                     camera_index,
                     exc.__class__.__name__,
                     attempt,
-                    _UPLOAD_RETRIES,
+                    attempts,
                     _UPLOAD_RETRY_DELAY,
                 )
                 time.sleep(_UPLOAD_RETRY_DELAY)
