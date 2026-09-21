@@ -1,18 +1,15 @@
 #!/usr/bin/env bash
-# Build the Lance On admin SPA and publish it under /admin/.
+# Build the public Lance On website and publish it for Nginx (site root).
 # Usage:
-#   sudo ./install-admin.sh
-#   sudo ./install-admin.sh https://lanceonpara.com.br
+#   sudo ./install-website.sh
 set -euo pipefail
 
-API_URL="${1:-}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-ADMIN_SRC="${REPO_ROOT}/admin"
-SITE_ROOT="/var/www/lanceon"
-ADMIN_ROOT="${SITE_ROOT}/admin"
+WEB_SRC="${REPO_ROOT}/website"
+WEB_ROOT="/var/www/lanceon"
 
 if [ "$(id -u)" -ne 0 ]; then
-  echo "Run as root: sudo $0 [https://your-domain]"
+  echo "Run as root: sudo $0"
   exit 1
 fi
 
@@ -41,31 +38,34 @@ ensure_node() {
 ensure_node
 echo "Using $(node -v) / $(npm -v)"
 
-cd "${ADMIN_SRC}"
+cd "${WEB_SRC}"
 
-if [ -n "${API_URL}" ]; then
-  printf 'VITE_API_URL=%s\n' "${API_URL}" > .env.production
-elif [ -f .env.production ]; then
-  echo "Keeping existing admin/.env.production"
+if [ -f .env.production ]; then
+  echo "Keeping existing website/.env.production"
 elif [ -f .env ]; then
   cp .env .env.production
-  echo "Copied admin/.env to admin/.env.production"
+  echo "Copied website/.env to website/.env.production"
 else
   # Same origin: browser calls /api on lanceonpara.com.br
   printf 'VITE_API_URL=\n' > .env.production
 fi
 
-echo "Building admin with base=/admin/ and:"
+echo "Building website with:"
 cat .env.production
 
 npm ci
 npm run build
 
-mkdir -p "${ADMIN_ROOT}"
-rsync -a --delete "${ADMIN_SRC}/dist/" "${ADMIN_ROOT}/"
-chown -R www-data:www-data "${SITE_ROOT}"
+mkdir -p "${WEB_ROOT}"
+# Preserve /admin if already deployed
+if [ -d "${WEB_ROOT}/admin" ]; then
+  rsync -a --delete --exclude 'admin' "${WEB_SRC}/dist/" "${WEB_ROOT}/"
+else
+  rsync -a --delete "${WEB_SRC}/dist/" "${WEB_ROOT}/"
+fi
+chown -R www-data:www-data "${WEB_ROOT}"
 
 echo ""
-echo "Admin published to ${ADMIN_ROOT}"
-echo "Open: https://lanceonpara.com.br/admin/"
-echo "Next: sudo nginx -t && sudo systemctl reload nginx"
+echo "Website published to ${WEB_ROOT}"
+echo "Open: https://lanceonpara.com.br"
+echo "Admin stays at: https://lanceonpara.com.br/admin/"

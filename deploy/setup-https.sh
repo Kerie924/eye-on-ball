@@ -12,7 +12,7 @@ if [ -z "$DOMAIN" ]; then
   echo "Before running:"
   echo "  1. A records for @, www, and api -> EC2 Elastic IP"
   echo "  2. Open AWS security group ports 80 and 443"
-  echo "  3. Build the admin: sudo ./install-admin.sh"
+  echo "  3. Build website + admin: sudo ./install-website.sh && sudo ./install-admin.sh"
   exit 1
 fi
 
@@ -25,11 +25,16 @@ echo "Installing Nginx + Certbot..."
 apt-get update -y
 apt-get install -y nginx certbot python3-certbot-nginx
 
-mkdir -p /var/www/lanceon-admin
-if [ ! -f /var/www/lanceon-admin/index.html ]; then
-  echo "<!doctype html><title>Lance On</title><p>Admin not built yet. Run deploy/install-admin.sh</p>" \
-    > /var/www/lanceon-admin/index.html
-  chown -R www-data:www-data /var/www/lanceon-admin
+mkdir -p /var/www/lanceon
+if [ ! -f /var/www/lanceon/index.html ]; then
+  echo "<!doctype html><title>Lance On</title><p>Website not built yet. Run deploy/install-website.sh</p>" \
+    > /var/www/lanceon/index.html
+  chown -R www-data:www-data /var/www/lanceon
+fi
+mkdir -p /var/www/lanceon/admin
+if [ ! -f /var/www/lanceon/admin/index.html ]; then
+  echo "<!doctype html><title>Lance On Admin</title><p>Admin not built yet. Run deploy/install-admin.sh</p>" \
+    > /var/www/lanceon/admin/index.html
 fi
 
 CONF_SRC="$(cd "$(dirname "$0")" && pwd)/nginx-lanceon.conf"
@@ -56,9 +61,10 @@ systemctl reload nginx
 
 echo ""
 echo "HTTPS ready:"
-echo "  Admin:  https://${DOMAIN}"
-echo "  API:    https://api.${DOMAIN}/health"
-echo "  Same-origin API via admin host: https://${DOMAIN}/api/..."
+echo "  Website: https://${DOMAIN}/"
+echo "  Admin:   https://${DOMAIN}/admin/"
+echo "  API:     https://api.${DOMAIN}/health"
+echo "  Same-origin API: https://${DOMAIN}/api/..."
 echo ""
 echo "Keep API on localhost only (recommended):"
 echo "  Edit /etc/systemd/system/lanceon-api.service"
