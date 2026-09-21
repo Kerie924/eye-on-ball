@@ -11,7 +11,12 @@ Group=ubuntu
 WorkingDirectory=/opt/lance-on/backend
 Environment=PYTHONUNBUFFERED=1
 EnvironmentFile=/opt/lance-on/backend/.env
-ExecStart=/opt/lance-on/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+# Fail fast with a clear error instead of "resources" if files are missing
+ExecStartPre=/usr/bin/test -f /opt/lance-on/backend/.env
+ExecStartPre=/usr/bin/test -x /opt/lance-on/backend/.venv/bin/uvicorn
+ExecStartPre=/opt/lance-on/deploy/wait-for-postgres.sh
+# Single worker: lifespan seeds DB/S3 once; avoids race + duplicate schedulers
+ExecStart=/opt/lance-on/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
 Restart=always
 RestartSec=5
 

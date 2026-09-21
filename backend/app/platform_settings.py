@@ -1,9 +1,12 @@
-from datetime import datetime, timedelta, timezone
+import logging
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models import PlatformSettings
+
+logger = logging.getLogger(__name__)
 
 
 def ensure_platform_settings(db: Session) -> PlatformSettings:
@@ -31,6 +34,14 @@ def ensure_platform_settings(db: Session) -> PlatformSettings:
         retention_hours=settings.recording_retention_hours,
     )
     db.add(row)
-    db.commit()
-    db.refresh(row)
-    return row
+    try:
+        db.commit()
+        db.refresh(row)
+        return row
+    except IntegrityError:
+        db.rollback()
+        logger.info("Platform settings already created by another worker")
+        existing = db.get(PlatformSettings, 1)
+        if existing is None:
+            raise
+        return existing

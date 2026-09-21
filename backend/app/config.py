@@ -8,8 +8,9 @@ class Settings(BaseSettings):
     secret_key: str = "dev-secret-key-change-in-production"
     access_token_expire_minutes: int = 60 * 24 * 7
 
-    # MinIO/local: http://localhost:9000 — AWS S3: leave empty (uses regional AWS endpoint)
-    s3_endpoint_url: str | None = "http://localhost:9000"
+    # MinIO/local: http://localhost:9000 — AWS S3: leave empty / unset (regional AWS endpoint)
+    # Default None so production never hangs trying to reach local MinIO.
+    s3_endpoint_url: str | None = None
     # Public URL phones can reach (LAN MinIO). Not needed for real AWS S3 presigned URLs.
     s3_public_endpoint_url: str | None = None
     s3_access_key: str = "minioadmin"

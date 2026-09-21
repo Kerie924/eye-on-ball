@@ -1,10 +1,13 @@
+import logging
 from urllib.parse import urlparse
 
 import boto3
 from botocore.client import Config
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 def get_s3_client():
@@ -13,7 +16,12 @@ def get_s3_client():
         "aws_access_key_id": settings.s3_access_key,
         "aws_secret_access_key": settings.s3_secret_key,
         "region_name": settings.s3_region,
-        "config": Config(signature_version="s3v4"),
+        "config": Config(
+            signature_version="s3v4",
+            connect_timeout=5,
+            read_timeout=10,
+            retries={"max_attempts": 2},
+        ),
     }
     # Empty/None = real Amazon S3; set for MinIO or custom endpoints.
     if settings.s3_endpoint_url:
@@ -22,23 +30,32 @@ def get_s3_client():
 
 
 def ensure_bucket_exists() -> None:
-    client = get_s3_client()
+    """Best-effort bucket check. Never block API boot (login/health) on S3 misconfig."""
     try:
-        client.head_bucket(Bucket=settings.s3_bucket)
-    except ClientError:
-        params: dict = {"Bucket": settings.s3_bucket}
-        # AWS requires LocationConstraint outside us-east-1; MinIO ignores it safely in most setups.
-        if settings.s3_region and settings.s3_region != "us-east-1":
-            params["CreateBucketConfiguration"] = {"LocationConstraint": settings.s3_region}
+        client = get_s3_client()
         try:
-            client.create_bucket(**params)
-        except ClientError as exc:
-            # Bucket may already exist or be owned by us after a race.
-            code = exc.response.get("Error", {}).get("Code", "")
-            if code not in {"BucketAlreadyOwnedByYou", "BucketAlreadyExists"}:
-                raise
+            client.head_bucket(Bucket=settings.s3_bucket)
+        except ClientError:
+            params: dict = {"Bucket": settings.s3_bucket}
+            # AWS requires LocationConstraint outside us-east-1; MinIO ignores it safely in most setups.
+            if settings.s3_region and settings.s3_region != "us-east-1":
+                params["CreateBucketConfiguration"] = {
+                    "LocationConstraint": settings.s3_region
+                }
+            try:
+                client.create_bucket(**params)
+            except ClientError as exc:
+                # Bucket may already exist or be owned by us after a race.
+                code = exc.response.get("Error", {}).get("Code", "")
+                if code not in {"BucketAlreadyOwnedByYou", "BucketAlreadyExists"}:
+                    raise
 
-    _ensure_download_cors()
+        _ensure_download_cors()
+    except (ClientError, BotoCoreError, Exception) as exc:
+        logger.warning(
+            "S3 bucket check failed (%s). API will start; video upload/download may fail until S3 is fixed.",
+            exc,
+        )
 
 
 def _ensure_download_cors() -> None:

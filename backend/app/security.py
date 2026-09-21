@@ -1,13 +1,17 @@
 import hashlib
+import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
 from jose import JWTError, jwt
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models import User, UserRole
+
+logger = logging.getLogger(__name__)
 
 ALGORITHM = "HS256"
 
@@ -57,4 +61,8 @@ def ensure_admin_user(db: Session) -> None:
         is_approved=True,
     )
     db.add(admin)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        logger.info("Admin user already created by another worker")

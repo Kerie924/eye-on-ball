@@ -68,7 +68,6 @@ ensure_python() {
   sudo apt-get update -y
   sudo apt-get install -y curl ca-certificates build-essential libpq-dev rsync
 
-  # Try deadsnakes on Ubuntu (may not exist for every release)
   if [ -f /etc/os-release ]; then
     # shellcheck source=/dev/null
     . /etc/os-release
@@ -88,14 +87,15 @@ ensure_python() {
     fi
   fi
 
-  # Reliable fallback: uv installs a standalone CPython 3.12
   if ! install_uv; then
     echo "Failed to install uv."
     exit 1
   fi
   echo "Installing CPython 3.12 via uv..."
-  sudo -u "${SERVICE_USER}" "${SERVICE_HOME}/.local/bin/uv" python install 3.12
-  bin="$(sudo -u "${SERVICE_USER}" "${SERVICE_HOME}/.local/bin/uv" python find 3.12)"
+  local UV_BIN
+  UV_BIN="$(command -v uv || echo "${SERVICE_HOME}/.local/bin/uv")"
+  sudo -u "${SERVICE_USER}" "$UV_BIN" python install 3.12
+  bin="$(sudo -u "${SERVICE_USER}" "$UV_BIN" python find 3.12)"
   if [ -z "$bin" ] || [ ! -x "$bin" ]; then
     echo "uv could not provide Python 3.12"
     exit 1
@@ -116,34 +116,57 @@ sudo rsync -a --delete \
   --exclude '.git' \
   --exclude 'mobile/node_modules' \
   --exclude 'admin/node_modules' \
+  --exclude 'website/node_modules' \
+  --exclude 'backend/.env' \
+  --exclude 'deploy/postgres.env' \
   "${REPO_ROOT}/" "${INSTALL_ROOT}/"
 
 sudo chown -R "${SERVICE_USER}:${SERVICE_USER}" "${INSTALL_ROOT}"
+sudo chmod +x "${INSTALL_ROOT}/deploy/wait-for-postgres.sh" \
+  "${INSTALL_ROOT}/deploy/install-api.sh" \
+  "${INSTALL_ROOT}/deploy/install-website.sh" \
+  "${INSTALL_ROOT}/deploy/install-admin.sh" \
+  "${INSTALL_ROOT}/deploy/setup-https.sh"
 
 if [ ! -f "${INSTALL_ROOT}/deploy/postgres.env" ]; then
-  sudo cp "${INSTALL_ROOT}/deploy/postgres.env.example" "${INSTALL_ROOT}/deploy/postgres.env"
+  sudo -u "${SERVICE_USER}" cp "${INSTALL_ROOT}/deploy/postgres.env.example" "${INSTALL_ROOT}/deploy/postgres.env"
   echo "Created ${INSTALL_ROOT}/deploy/postgres.env — set POSTGRES_PASSWORD"
 fi
 
 cd "${INSTALL_ROOT}/deploy"
 sudo docker compose -f docker-compose.prod.yml --env-file postgres.env up -d
 
+echo "Waiting for Postgres..."
+sudo -u "${SERVICE_USER}" "${INSTALL_ROOT}/deploy/wait-for-postgres.sh"
+
 cd "${INSTALL_ROOT}/backend"
-if [ -d .venv ]; then
-  echo "Removing existing .venv so it is recreated with $($PYTHON_BIN --version)..."
-  sudo rm -rf .venv
+
+# Recreate venv if missing or wrong Python (e.g. 3.14)
+NEED_VENV=0
+if [ ! -x .venv/bin/uvicorn ]; then
+  NEED_VENV=1
+elif ! is_supported_python .venv/bin/python; then
+  echo "Existing .venv uses unsupported $($(.venv/bin/python --version 2>/dev/null || echo unknown)); recreating..."
+  NEED_VENV=1
 fi
 
-# Prefer uv venv when available (works with uv-managed Python 3.12)
-if command -v uv >/dev/null 2>&1 || [ -x "${SERVICE_HOME}/.local/bin/uv" ]; then
-  UV_BIN="$(command -v uv || echo "${SERVICE_HOME}/.local/bin/uv")"
-  sudo -u "${SERVICE_USER}" "$UV_BIN" venv --python "$PYTHON_BIN" .venv
-  sudo -u "${SERVICE_USER}" "$UV_BIN" pip install --python .venv/bin/python --upgrade pip
-  sudo -u "${SERVICE_USER}" "$UV_BIN" pip install --python .venv/bin/python -r requirements.txt
-else
-  sudo -u "${SERVICE_USER}" "$PYTHON_BIN" -m venv .venv
-  sudo -u "${SERVICE_USER}" .venv/bin/pip install --upgrade pip
-  sudo -u "${SERVICE_USER}" .venv/bin/pip install -r requirements.txt
+if [ "${NEED_VENV}" -eq 1 ]; then
+  sudo rm -rf .venv
+  if command -v uv >/dev/null 2>&1 || [ -x "${SERVICE_HOME}/.local/bin/uv" ]; then
+    UV_BIN="$(command -v uv || echo "${SERVICE_HOME}/.local/bin/uv")"
+    sudo -u "${SERVICE_USER}" "$UV_BIN" venv --python "$PYTHON_BIN" .venv
+    sudo -u "${SERVICE_USER}" "$UV_BIN" pip install --python .venv/bin/python --upgrade pip
+    sudo -u "${SERVICE_USER}" "$UV_BIN" pip install --python .venv/bin/python -r requirements.txt
+  else
+    sudo -u "${SERVICE_USER}" "$PYTHON_BIN" -m venv .venv
+    sudo -u "${SERVICE_USER}" .venv/bin/pip install --upgrade pip
+    sudo -u "${SERVICE_USER}" .venv/bin/pip install -r requirements.txt
+  fi
+fi
+
+if [ ! -x .venv/bin/uvicorn ]; then
+  echo "ERROR: uvicorn missing after install. Check pip errors above."
+  exit 1
 fi
 
 if [ ! -f "${INSTALL_ROOT}/backend/.env" ]; then
@@ -161,12 +184,16 @@ sudo systemctl daemon-reload
 sudo systemctl enable lanceon-api.service
 
 echo ""
-echo "Installation staged with $($PYTHON_BIN --version)."
+echo "Installation complete with $($PYTHON_BIN --version)."
+echo "venv python: $(.venv/bin/python --version)"
+echo ""
 echo "1. Edit DB password:  sudo nano ${INSTALL_ROOT}/deploy/postgres.env"
 echo "   Then: cd ${INSTALL_ROOT}/deploy && sudo docker compose -f docker-compose.prod.yml --env-file postgres.env up -d"
 echo "2. Edit API env:      sudo nano ${INSTALL_ROOT}/backend/.env"
-echo "   Match DATABASE_URL password to postgres.env; set S3_* and SECRET_KEY"
-echo "3. Start API:         sudo systemctl start lanceon-api"
+echo "   Match DATABASE_URL password to postgres.env; set real S3_* and SECRET_KEY"
+echo "   Leave S3_ENDPOINT_URL empty for Amazon S3"
+echo "3. Start API:         sudo systemctl restart lanceon-api"
 echo "4. Status:            sudo systemctl status lanceon-api"
-echo "5. Logs:              sudo journalctl -u lanceon-api -f"
+echo "5. Logs:              sudo journalctl -u lanceon-api -n 80 --no-pager"
 echo "6. Health:            curl http://127.0.0.1:8000/health"
+echo "                      curl https://lanceonpara.com.br/health"

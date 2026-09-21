@@ -15,7 +15,10 @@ def _sqlalchemy_url(url: str) -> str:
     return url
 
 
-engine = create_engine(_sqlalchemy_url(settings.database_url))
+engine = create_engine(
+    _sqlalchemy_url(settings.database_url),
+    pool_pre_ping=True,
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 

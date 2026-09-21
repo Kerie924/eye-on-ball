@@ -1,7 +1,9 @@
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.exc import OperationalError
 
 from app.cleanup import start_scheduler
 from app.database import Base, SessionLocal, engine
@@ -12,12 +14,23 @@ from app.schema_patches import ensure_user_columns, seed_default_cities
 from app.security import ensure_admin_user
 from app.storage import ensure_bucket_exists
 
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    Base.metadata.create_all(bind=engine)
-    ensure_user_columns()
-    seed_default_cities()
+    try:
+        Base.metadata.create_all(bind=engine)
+        ensure_user_columns()
+        seed_default_cities()
+    except OperationalError as exc:
+        logger.error(
+            "Database unavailable during startup: %s. "
+            "Check DATABASE_URL and that Postgres is running.",
+            exc,
+        )
+        raise
+
     ensure_bucket_exists()
 
     db = SessionLocal()
