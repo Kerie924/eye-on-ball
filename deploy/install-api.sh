@@ -62,8 +62,9 @@ ensure_python() {
     return 0
   fi
 
-  echo "System Python is too new or missing (need 3.11–3.13)."
-  echo "Current default: $(python3 --version 2>/dev/null || echo unknown)"
+  # Status messages must go to stderr so PYTHON_BIN="$(ensure_python)" only captures the path.
+  echo "System Python is too new or missing (need 3.11–3.13)." >&2
+  echo "Current default: $(python3 --version 2>/dev/null || echo unknown)" >&2
 
   sudo apt-get update -y
   sudo apt-get install -y curl ca-certificates build-essential libpq-dev rsync
@@ -72,7 +73,7 @@ ensure_python() {
     # shellcheck source=/dev/null
     . /etc/os-release
     if [ "${ID:-}" = "ubuntu" ]; then
-      echo "Trying deadsnakes PPA for Python 3.12..."
+      echo "Trying deadsnakes PPA for Python 3.12..." >&2
       if sudo apt-get install -y software-properties-common \
         && sudo add-apt-repository -y ppa:deadsnakes/ppa \
         && sudo apt-get update -y \
@@ -82,22 +83,22 @@ ensure_python() {
           return 0
         fi
       else
-        echo "deadsnakes not available on this release; falling back to uv."
+        echo "deadsnakes not available on this release; falling back to uv." >&2
       fi
     fi
   fi
 
   if ! install_uv; then
-    echo "Failed to install uv."
+    echo "Failed to install uv." >&2
     exit 1
   fi
-  echo "Installing CPython 3.12 via uv..."
+  echo "Installing CPython 3.12 via uv..." >&2
   local UV_BIN
   UV_BIN="$(command -v uv || echo "${SERVICE_HOME}/.local/bin/uv")"
   sudo -u "${SERVICE_USER}" "$UV_BIN" python install 3.12
   bin="$(sudo -u "${SERVICE_USER}" "$UV_BIN" python find 3.12)"
   if [ -z "$bin" ] || [ ! -x "$bin" ]; then
-    echo "uv could not provide Python 3.12"
+    echo "uv could not provide Python 3.12" >&2
     exit 1
   fi
   echo "$bin"
