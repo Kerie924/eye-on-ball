@@ -1,13 +1,14 @@
 import logging
+import shutil
 import signal
 import sys
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from agent.api_client import ApiClient
-from agent.buffer import BufferRecorder, build_clip, clip_trigger_time
+from agent.buffer import BufferRecorder, build_clip
 from agent.buttons import ButtonListener
 from agent.config import AgentConfig, CameraConfig, load_config
 from agent.upload_queue import UploadQueue
@@ -124,17 +125,24 @@ class CaptureService:
             logger.warning("Clip already being built; ignoring trigger for camera %s", camera_index)
             return
 
+        snap_dir: Path | None = None
         try:
             recorder = self.recorders.get(camera_index)
             if not recorder:
                 logger.error("No recorder found for camera %s", camera_index)
                 return
 
-            segments = recorder.list_segments(exclude_active=True)
+            snap_dir = (
+                self.config.data_dir
+                / f"camera-{camera_index}"
+                / "snap"
+                / str(int(time.time() * 1000))
+            )
+            segments = recorder.snapshot_segments(snap_dir)
             needed = self.config.segments_for_clip
-            # Need enough finished video before trimming to exact clip_seconds.
             min_segments = max(1, -(-self.config.clip_seconds // self.config.segment_seconds))
             if len(segments) < min_segments:
+                shutil.rmtree(snap_dir, ignore_errors=True)
                 logger.warning(
                     "Not enough buffer segments for camera %s (%s/%s). "
                     "Wait ~%ss after start before triggering.",
@@ -162,12 +170,14 @@ class CaptureService:
                 clip_seconds=self.config.clip_seconds,
                 watermark_path=self.config.watermark_path,
             )
-            triggered_at = clip_trigger_time(clip_segments)
+            triggered_at = datetime.now(timezone.utc)
             self.queue.enqueue(camera_index, clip_path, triggered_at)
             self._upload_ready.set()
         except Exception:
             logger.exception("Failed to process trigger for camera %s", camera_index)
         finally:
+            if snap_dir is not None:
+                shutil.rmtree(snap_dir, ignore_errors=True)
             lock.release()
 
     def _heartbeat_loop(self) -> None:
@@ -294,17 +304,24 @@ class CaptureService:
             time.sleep(1)
 
 
-def configure_logging(verbose: bool = False) -> None:
+def configure_logging(verbose: bool = False, log_file: Path | None = None) -> None:
     level = logging.DEBUG if verbose else logging.INFO
+    handlers: list[logging.Handler] = [logging.StreamHandler(sys.stdout)]
+    if log_file is not None:
+        handlers.append(logging.FileHandler(log_file, encoding="utf-8"))
     logging.basicConfig(
         level=level,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        handlers=handlers,
+        force=True,
     )
 
 
 def main(argv: list[str] | None = None) -> int:
+    from agent.paths import default_config_path, default_log_dir, is_windows
+
     argv = argv or sys.argv[1:]
-    config_path = "/etc/lance-on/config.yaml"
+    config_path = str(default_config_path())
     verbose = False
 
     if "--config" in argv:
@@ -312,7 +329,12 @@ def main(argv: list[str] | None = None) -> int:
     if "--verbose" in argv or "-v" in argv:
         verbose = True
 
-    configure_logging(verbose)
+    if is_windows():
+        log_dir = default_log_dir()
+        log_dir.mkdir(parents=True, exist_ok=True)
+        configure_logging(verbose, log_file=log_dir / "capture.log")
+    else:
+        configure_logging(verbose)
     config = load_config(config_path)
     service = CaptureService(config)
 

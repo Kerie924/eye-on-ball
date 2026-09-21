@@ -3,6 +3,8 @@ from pathlib import Path
 
 import yaml
 
+from agent.paths import default_data_dir
+
 MAX_CAMERAS = 6
 
 
@@ -14,6 +16,7 @@ class ButtonConfig:
     trigger_on: str = "1"
     pin: int | None = None
     gnd_pin: int | None = None
+    key: str | None = None
     mock_file: str | None = None
 
     @property
@@ -66,6 +69,7 @@ def _parse_button(raw: dict | None, default_trigger: str = "1") -> ButtonConfig:
         trigger_on=str(button_raw.get("trigger_on", default_trigger)),
         pin=button_raw.get("pin"),
         gnd_pin=button_raw.get("gnd_pin"),
+        key=button_raw.get("key"),
         mock_file=button_raw.get("mock_file"),
     )
 
@@ -122,7 +126,7 @@ def load_config(path: str | Path) -> AgentConfig:
         segment_seconds=int(raw.get("segment_seconds", 10)),
         heartbeat_seconds=int(raw.get("heartbeat_seconds", 60)),
         button_cooldown_seconds=int(raw.get("button_cooldown_seconds", 3)),
-        data_dir=Path(raw.get("data_dir", "/var/lib/lance-on")),
+        data_dir=Path(raw.get("data_dir", str(default_data_dir()))),
         cameras=cameras,
         court_button=court_button,
         watermark_path=watermark_path,

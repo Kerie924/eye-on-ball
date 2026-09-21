@@ -1,4 +1,5 @@
 import logging
+import shutil
 import subprocess
 import threading
 import time
@@ -55,6 +56,8 @@ class BufferRecorder:
                 "1",
                 "-segment_format",
                 "mp4",
+                "-segment_format_options",
+                "movflags=+frag_keyframe+empty_moov+default_base_moof",
                 pattern,
             ]
         else:
@@ -78,6 +81,8 @@ class BufferRecorder:
                 "1",
                 "-segment_format",
                 "mp4",
+                "-segment_format_options",
+                "movflags=+frag_keyframe+empty_moov+default_base_moof",
                 pattern,
             ]
 
@@ -131,8 +136,61 @@ class BufferRecorder:
         if self._cleanup_thread:
             self._cleanup_thread.join(timeout=2)
 
-    def is_running(self) -> bool:
-        return self.process is not None and self.process.poll() is None
+    def snapshot_segments(self, dest_dir: Path) -> list[Path]:
+        """Copy buffer files, including the live segment, so the clip ends at press time."""
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        sources = sorted(
+            self.buffer_dir.glob("segment_*.mp4"),
+            key=lambda p: (p.stat().st_mtime, p.name),
+        )
+        copies: list[Path] = []
+        for src in sources:
+            dest = dest_dir / src.name
+            try:
+                shutil.copy2(src, dest)
+            except OSError:
+                logger.warning("Could not snapshot %s", src)
+                continue
+            if dest.stat().st_size > 0:
+                copies.append(dest)
+
+        if not copies:
+            return []
+
+        newest = copies[-1]
+        closed = dest_dir / f"{newest.stem}_closed.mp4"
+        if _finalize_mp4(newest, closed):
+            newest.unlink(missing_ok=True)
+            copies[-1] = closed
+        else:
+            logger.warning(
+                "Active segment for camera %s could not be closed; clip may end a few seconds early",
+                self.camera.index,
+            )
+            newest.unlink(missing_ok=True)
+            copies = copies[:-1]
+        return copies
+
+
+def _finalize_mp4(source: Path, output_path: Path) -> bool:
+    """Remux a still-growing fragmented MP4 into a file concat can read."""
+    command = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-i",
+        str(source),
+        "-an",
+        "-c",
+        "copy",
+        "-movflags",
+        "+faststart",
+        str(output_path),
+    ]
+    result = subprocess.run(command, capture_output=True, text=True, check=False)
+    return result.returncode == 0 and output_path.exists() and output_path.stat().st_size > 0
 
 
 def build_clip(
@@ -173,6 +231,34 @@ def build_clip(
         str(concat_path),
     ]
     result = subprocess.run(concat_cmd, capture_output=True, text=True, check=False)
+    if result.returncode != 0 or not concat_path.exists():
+        logger.warning("Concat copy failed; re-encoding buffer join")
+        concat_cmd = [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            str(list_file),
+            "-an",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "23",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            str(concat_path),
+        ]
+        result = subprocess.run(concat_cmd, capture_output=True, text=True, check=False)
     list_file.unlink(missing_ok=True)
     if result.returncode != 0 or not concat_path.exists():
         raise RuntimeError(result.stderr.strip() or "Failed to concatenate buffer segments")
@@ -191,6 +277,24 @@ def build_clip(
         raise RuntimeError("Generated clip is empty")
 
 
+def _media_duration(path: Path) -> float:
+    command = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        str(path),
+    ]
+    result = subprocess.run(command, capture_output=True, text=True, check=False)
+    try:
+        return max(0.0, float((result.stdout or "").strip()))
+    except ValueError:
+        return 0.0
+
+
 def _render_final_clip(
     source: Path,
     output_path: Path,
@@ -198,24 +302,28 @@ def _render_final_clip(
     clip_seconds: int,
     watermark_path: Path | None,
 ) -> None:
-    """Take the last N seconds and optionally overlay a bottom banner watermark."""
+    """Keep the last N seconds, ending at the latest captured frame."""
+    duration = _media_duration(source)
+    start = max(0.0, duration - clip_seconds) if duration > 0 else None
     if watermark_path and watermark_path.exists():
-        _render_final_clip_simple(source, output_path, clip_seconds, watermark_path)
+        _render_final_clip_simple(
+            source, output_path, clip_seconds, watermark_path, start=start
+        )
         return
 
     if watermark_path:
         logger.warning("Watermark file missing: %s", watermark_path)
 
+    seek = ["-ss", f"{start:.3f}"] if start is not None else ["-sseof", f"-{clip_seconds}"]
     command = [
         "ffmpeg",
         "-hide_banner",
         "-loglevel",
         "error",
         "-y",
-        "-sseof",
-        f"-{clip_seconds}",
         "-i",
         str(source),
+        *seek,
         "-an",
         "-c:v",
         "libx264",
@@ -241,68 +349,32 @@ def _render_final_clip_simple(
     output_path: Path,
     clip_seconds: int,
     watermark_path: Path,
+    start: float | None = None,
 ) -> None:
-    """Bottom-centered watermark (~28% of frame height). Larger than the old thin banner."""
-    # Height-based scale works for both wide banners and square logos.
+    """Bottom-centered watermark (~28% of frame height)."""
     scale_h = "main_h*0.28"
     fallback_h = "300"
-    command = [
-        "ffmpeg",
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-y",
-        "-sseof",
-        f"-{clip_seconds}",
-        "-i",
-        str(source),
-        "-i",
-        str(watermark_path.resolve()),
-        "-filter_complex",
-        (
-            f"[0:v]trim=duration={clip_seconds},setpts=PTS-STARTPTS[base];"
-            f"[1:v][base]scale2ref=h={scale_h}:w=oh*mdar[wm][v];"
-            "[v][wm]overlay=(W-w)/2:H-h-12[out]"
-        ),
-        "-map",
-        "[out]",
-        "-an",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "veryfast",
-        "-crf",
-        "23",
-        "-pix_fmt",
-        "yuv420p",
-        "-t",
-        str(clip_seconds),
-        "-movflags",
-        "+faststart",
-        str(output_path),
-    ]
-    result = subprocess.run(command, capture_output=True, text=True, check=False)
-    if result.returncode != 0:
-        # Older ffmpeg: fixed-height scale fallback
-        logger.warning("scale2ref failed; using fixed watermark height")
+    if start is not None:
+        trim = f"trim=start={start:.3f}:duration={clip_seconds},setpts=PTS-STARTPTS"
+        seek_in: list[str] = []
+    else:
+        trim = "setpts=PTS-STARTPTS"
+        seek_in = ["-sseof", f"-{clip_seconds}"]
+
+    def run(filter_complex: str) -> subprocess.CompletedProcess:
         command = [
             "ffmpeg",
             "-hide_banner",
             "-loglevel",
             "error",
             "-y",
-            "-sseof",
-            f"-{clip_seconds}",
+            *seek_in,
             "-i",
             str(source),
             "-i",
             str(watermark_path.resolve()),
             "-filter_complex",
-            (
-                f"[0:v]trim=duration={clip_seconds},setpts=PTS-STARTPTS[base];"
-                f"[1:v]scale=-1:{fallback_h}[wm];"
-                "[base][wm]overlay=(W-w)/2:H-h-12[out]"
-            ),
+            filter_complex,
             "-map",
             "[out]",
             "-an",
@@ -320,7 +392,20 @@ def _render_final_clip_simple(
             "+faststart",
             str(output_path),
         ]
-        result = subprocess.run(command, capture_output=True, text=True, check=False)
+        return subprocess.run(command, capture_output=True, text=True, check=False)
+
+    result = run(
+        f"[0:v]{trim}[base];"
+        f"[1:v][base]scale2ref=h={scale_h}:w=oh*mdar[wm][v];"
+        "[v][wm]overlay=(W-w)/2:H-h-12[out]"
+    )
+    if result.returncode != 0:
+        logger.warning("scale2ref failed; using fixed watermark height")
+        result = run(
+            f"[0:v]{trim}[base];"
+            f"[1:v]scale=-1:{fallback_h}[wm];"
+            "[base][wm]overlay=(W-w)/2:H-h-12[out]"
+        )
         if result.returncode != 0:
             raise RuntimeError(result.stderr.strip() or "Failed to render watermarked clip")
 

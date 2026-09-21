@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Lance On Setup App — Ubuntu wizard for court capture."""
+"""Lance On Setup App — court capture installer (Ubuntu + Windows)."""
 
 from __future__ import annotations
 
@@ -7,13 +7,15 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox
 
 SOURCE_DIR = Path(__file__).resolve().parent
-INSTALLER = SOURCE_DIR / "install_capture.py"
+IS_WINDOWS = sys.platform.startswith("win")
+INSTALLER = SOURCE_DIR / ("install_windows.py" if IS_WINDOWS else "install_capture.py")
 DEFAULT_API_URL = "https://api.lanceonpara.com.br"
 MAX_CAMERAS = 6
 BG = "#0f1117"
@@ -40,6 +42,11 @@ class SetupApp(tk.Tk):
         self._build()
         self._refresh_cameras()
 
+    def _button_label(self) -> str:
+        if IS_WINDOWS:
+            return "Botoes fisicos USB/teclado (F1=cam1, F2=cam2, ...)"
+        return "Um botao fisico por camera (GPIO17, GPIO22, ... no Mini PC)"
+
     def _build(self) -> None:
         outer = tk.Frame(self, bg=BG, padx=24, pady=20)
         outer.pack(fill=tk.BOTH, expand=True)
@@ -51,9 +58,10 @@ class SetupApp(tk.Tk):
             bg=BG,
             font=("Sans", 22, "bold"),
         ).pack(anchor="w")
+        platform = "Windows" if IS_WINDOWS else "Ubuntu"
         tk.Label(
             outer,
-            text="Instale o gravador da quadra. O painel admin fica na nuvem.",
+            text=f"Instale o gravador da quadra ({platform}). O painel admin fica na nuvem.",
             fg=MUTED,
             bg=BG,
             font=("Sans", 11),
@@ -109,7 +117,7 @@ class SetupApp(tk.Tk):
 
         tk.Checkbutton(
             form,
-            text="Um botao fisico por camera (GPIO17, GPIO27, ... no Mini PC)",
+            text=self._button_label(),
             variable=self.use_gpio,
             fg=FG,
             bg=CARD,
@@ -164,6 +172,49 @@ class SetupApp(tk.Tk):
         self.status.see(tk.END)
         self.update_idletasks()
 
+    def _run_installer(self, settings_path: str) -> subprocess.CompletedProcess:
+        python = sys_executable()
+        installer_args = [
+            str(INSTALLER),
+            "--source",
+            str(SOURCE_DIR),
+            "--settings",
+            settings_path,
+        ]
+        if IS_WINDOWS:
+            log_path = Path(tempfile.gettempdir()) / "lanceon-install.log"
+            wrapper = Path(tempfile.gettempdir()) / "lanceon-install-run.bat"
+            # Run elevated and wait; write all output to log_path.
+            lines = [
+                "@echo off",
+                f'"{python}" '
+                + " ".join(f'"{a}"' for a in installer_args)
+                + f' > "{log_path}" 2>&1',
+                "exit /b %ERRORLEVEL%",
+            ]
+            wrapper.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            ps = (
+                f"$p = Start-Process -FilePath '{wrapper}' "
+                f"-Verb RunAs -Wait -PassThru; exit $p.ExitCode"
+            )
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
+                capture_output=True,
+                text=True,
+            )
+            out = ""
+            if log_path.exists():
+                out += log_path.read_text(encoding="utf-8", errors="ignore")
+            out += (result.stdout or "") + (result.stderr or "")
+            code = 0 if "INSTALL_OK" in out else (result.returncode or 1)
+            return subprocess.CompletedProcess(["install_windows.py"], code, out, "")
+
+        if shutil.which("pkexec"):
+            command = ["pkexec", python, *installer_args]
+        else:
+            command = ["sudo", python, *installer_args]
+        return subprocess.run(command, capture_output=True, text=True)
+
     def _install(self) -> None:
         try:
             count = int(self.camera_count.get())
@@ -199,31 +250,27 @@ class SetupApp(tk.Tk):
         try:
             json.dump(settings, handle)
             handle.close()
-            os.chmod(handle.name, 0o600)
+            try:
+                os.chmod(handle.name, 0o600)
+            except OSError:
+                pass
             self.install_btn.configure(state=tk.DISABLED, text="Instalando...")
-            self._log("Solicitando senha de administrador e instalando pacotes...")
-            self._log("Isso instala FFmpeg, Python e o servico de gravacao.")
-            python = sys_executable()
-            installer_args = [
-                python,
-                str(INSTALLER),
-                "--source",
-                str(SOURCE_DIR),
-                "--settings",
-                handle.name,
-            ]
-            if shutil.which("pkexec"):
-                command = ["pkexec", *installer_args]
+            self._log("Solicitando permissao de administrador e instalando...")
+            if IS_WINDOWS:
+                self._log("Windows: FFmpeg, Python venv e tarefa de inicializacao.")
             else:
-                command = ["sudo", *installer_args]
-            result = subprocess.run(command, capture_output=True, text=True)
+                self._log("Ubuntu: FFmpeg, Python, GPIO e servico systemd.")
+            result = self._run_installer(handle.name)
             output = (result.stdout or "") + (result.stderr or "")
             self._log(output.strip() or "(sem saida)")
             if result.returncode == 0 and "INSTALL_OK" in output:
-                messagebox.showinfo(
-                    "Lance On",
-                    "Instalacao concluida.\nO gravador inicia sozinho quando o Mini PC ligar.",
+                msg = (
+                    "Instalacao concluida.\n"
+                    "O gravador inicia sozinho quando o usuario fizer login."
+                    if IS_WINDOWS
+                    else "Instalacao concluida.\nO gravador inicia sozinho quando o Mini PC ligar."
                 )
+                messagebox.showinfo("Lance On", msg)
             else:
                 messagebox.showerror(
                     "Lance On",
@@ -235,6 +282,8 @@ class SetupApp(tk.Tk):
 
 
 def sys_executable() -> str:
+    if IS_WINDOWS:
+        return sys.executable
     return "/usr/bin/python3"
 
 

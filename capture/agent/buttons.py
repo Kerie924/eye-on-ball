@@ -5,6 +5,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from agent.config import ButtonConfig, CameraConfig
+from agent.paths import mock_trigger_path
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,7 @@ class ButtonListener:
         target = {
             "serial": self._run_serial,
             "gpio": self._run_gpio,
+            "keyboard": self._run_keyboard,
             "mock": self._run_mock,
         }.get(self.button.type, self._run_mock)
 
@@ -176,10 +178,53 @@ class ButtonListener:
             previous = current
             time.sleep(0.02)
 
-    def _run_mock(self) -> None:
-        mock_file = Path(
-            self.button.mock_file or f"/tmp/lanceon-button-{self.camera.index}.trigger"
+    def _run_keyboard(self) -> None:
+        """Listen for a key press (USB arcade/HID buttons on Windows)."""
+        key_name = (self.button.key or self.button.trigger_on or str(self.camera.index)).strip()
+        if not key_name:
+            raise RuntimeError(f"Keyboard key not configured for camera {self.camera.index}")
+
+        try:
+            from pynput import keyboard
+        except ImportError:
+            logger.warning(
+                "pynput not installed; falling back to mock file trigger for camera %s",
+                self.camera.index,
+            )
+            self._run_mock()
+            return
+
+        target = key_name.lower()
+        logger.info(
+            "Listening keyboard key %r for camera %s",
+            target,
+            self.camera.index,
         )
+
+        def matches(key) -> bool:
+            try:
+                if hasattr(key, "char") and key.char:
+                    return key.char.lower() == target
+                name = str(key).replace("Key.", "").lower()
+                return name == target or name == f"'{target}'"
+            except Exception:
+                return False
+
+        def on_press(key) -> None:
+            if matches(key):
+                self._fire()
+
+        listener = keyboard.Listener(on_press=on_press)
+        listener.start()
+        try:
+            while not self._stop.is_set():
+                time.sleep(0.2)
+        finally:
+            listener.stop()
+            listener.join(timeout=2)
+
+    def _run_mock(self) -> None:
+        mock_file = Path(self.button.mock_file or str(mock_trigger_path(self.camera.index)))
         logger.info(
             "Mock button for camera %s watching %s",
             self.camera.index,

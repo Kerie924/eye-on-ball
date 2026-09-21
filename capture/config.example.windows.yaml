@@ -1,0 +1,35 @@
+# Lance On - Court Capture Agent (Windows)
+# Installs to C:\ProgramData\LanceOn\
+
+api_url: https://api.lanceonpara.com.br
+device_key: PASTE_DEVICE_KEY_FROM_ADMIN_PANEL
+
+buffer_seconds: 300
+clip_seconds: 30
+segment_seconds: 10
+heartbeat_seconds: 60
+button_cooldown_seconds: 3
+queue_max_hours: 48
+queue_max_mb: 4096
+upload_retry_seconds: 20
+
+watermark_path: assets/video-watermark.jpeg
+
+# Windows uses keyboard / USB-HID buttons (not Raspberry Pi GPIO).
+# Default: F1 = camera 1, F2 = camera 2. Many USB arcade buttons send these keys.
+cameras:
+  - index: 1
+    name: Camera 1
+    rtsp_url: rtsp://admin:password@192.168.1.101:554/cam/realmonitor?channel=1&subtype=0
+    button:
+      type: keyboard
+      key: f1
+
+  - index: 2
+    name: Camera 2
+    rtsp_url: rtsp://admin:password@192.168.1.102:554/cam/realmonitor?channel=1&subtype=0
+    button:
+      type: keyboard
+      key: f2
+
+data_dir: C:/ProgramData/LanceOn/data
