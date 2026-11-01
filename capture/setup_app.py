@@ -173,7 +173,114 @@ class SetupApp(tk.Tk):
         self.update_idletasks()
 
     def _run_installer(self, settings_path: str) -> subprocess.CompletedProcess:
-        python = sys_executable()
+        python = resolve_windows_python() if IS_WINDOWS else sys_executable()
+        if IS_WINDOWS:
+            # Stage under C:\LanceOn (visible on PT-BR PCs; no ProgramData required).
+            # Avoids accented paths like "Área de Trabalho" that break UAC .bat elevation.
+            if str(SOURCE_DIR) not in sys.path:
+                sys.path.insert(0, str(SOURCE_DIR))
+            from agent.paths import program_data_root
+
+            install_home = program_data_root()
+            try:
+                install_home.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                return subprocess.CompletedProcess(
+                    ["install_windows.py"],
+                    1,
+                    f"Nao foi possivel criar {install_home}: {exc}\n"
+                    "Rode o Setup como Administrador ou defina LANCEON_HOME.",
+                    "",
+                )
+
+            stage_root = install_home / "setup-staging"
+            stage_root.mkdir(parents=True, exist_ok=True)
+            staged_source = stage_root / "capture"
+            if staged_source.exists():
+                shutil.rmtree(staged_source)
+            shutil.copytree(
+                SOURCE_DIR,
+                staged_source,
+                ignore=shutil.ignore_patterns(
+                    ".venv", "__pycache__", "*.pyc", ".git", "setup-staging"
+                ),
+            )
+            staged_settings = stage_root / "settings.json"
+            shutil.copy2(settings_path, staged_settings)
+            staged_installer = staged_source / "install_windows.py"
+            log_path = stage_root / "lanceon-install.log"
+            wrapper = stage_root / "lanceon-install-run.bat"
+            if log_path.exists():
+                log_path.unlink(missing_ok=True)
+
+            installer_args = [
+                str(staged_installer),
+                "--source",
+                str(staged_source),
+                "--settings",
+                str(staged_settings),
+            ]
+            quoted = " ".join(f'"{a}"' for a in [python, *installer_args])
+            lines = [
+                "@echo off",
+                "setlocal",
+                "chcp 65001 >nul",
+                f'cd /d "{staged_source}"',
+                f"{quoted} > \"{log_path}\" 2>&1",
+                "exit /b %ERRORLEVEL%",
+            ]
+            wrapper.write_text("\n".join(lines) + "\n", encoding="utf-8-sig")
+
+            wrapper_ps = str(wrapper).replace("'", "''")
+            python_ps = python.replace("'", "''")
+            home_ps = str(install_home).replace("'", "''")
+            ps = (
+                f"if (-not (Test-Path -LiteralPath '{python_ps}')) {{ "
+                f"Write-Error ('Python not found: ' + '{python_ps}'); exit 1 }}; "
+                f"if (-not (Test-Path -LiteralPath '{wrapper_ps}')) {{ "
+                f"Write-Error ('Wrapper not found: ' + '{wrapper_ps}'); exit 1 }}; "
+                f"$p = Start-Process -FilePath 'cmd.exe' "
+                f"-ArgumentList '/c','\"\"{wrapper_ps}\"\"' "
+                f"-Verb RunAs -Wait -PassThru; "
+                f"if ($null -eq $p) {{ Write-Error 'UAC cancelado ou falhou.'; exit 1 }}; "
+                f"exit $p.ExitCode"
+            )
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
+                capture_output=True,
+                text=True,
+            )
+            out = (
+                f"Python: {python}\n"
+                f"Install home: {home_ps}\n"
+                f"Staging: {stage_root}\n"
+                f"Installer log: {log_path}\n"
+            )
+            if log_path.exists():
+                out += log_path.read_text(encoding="utf-8", errors="ignore")
+            else:
+                out += (
+                    "(log de instalacao nao foi criado — a elevacao UAC pode ter falhado)\n"
+                )
+            out += (result.stdout or "") + (result.stderr or "")
+            path_err = (
+                "cannot find the specified path" in out.lower()
+                or "nao pode encontrar o caminho" in out.lower()
+                or "não pode encontrar o caminho" in out.lower()
+            )
+            if path_err and "WindowsApps" in python:
+                out += (
+                    "\nDICA: Python da Microsoft Store detectado. Instale Python 3.12+ de "
+                    "https://www.python.org/downloads/ com 'Add python.exe to PATH'.\n"
+                )
+            elif path_err:
+                out += (
+                    "\nDICA: Copie a pasta capture para C:\\LanceOn\\setup-src (sem acentos) "
+                    "e rode LanceOn-Setup.bat de la.\n"
+                )
+            code = 0 if "INSTALL_OK" in out else (result.returncode or 1)
+            return subprocess.CompletedProcess(["install_windows.py"], code, out, "")
+
         installer_args = [
             str(INSTALLER),
             "--source",
@@ -181,34 +288,6 @@ class SetupApp(tk.Tk):
             "--settings",
             settings_path,
         ]
-        if IS_WINDOWS:
-            log_path = Path(tempfile.gettempdir()) / "lanceon-install.log"
-            wrapper = Path(tempfile.gettempdir()) / "lanceon-install-run.bat"
-            # Run elevated and wait; write all output to log_path.
-            lines = [
-                "@echo off",
-                f'"{python}" '
-                + " ".join(f'"{a}"' for a in installer_args)
-                + f' > "{log_path}" 2>&1',
-                "exit /b %ERRORLEVEL%",
-            ]
-            wrapper.write_text("\n".join(lines) + "\n", encoding="utf-8")
-            ps = (
-                f"$p = Start-Process -FilePath '{wrapper}' "
-                f"-Verb RunAs -Wait -PassThru; exit $p.ExitCode"
-            )
-            result = subprocess.run(
-                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
-                capture_output=True,
-                text=True,
-            )
-            out = ""
-            if log_path.exists():
-                out += log_path.read_text(encoding="utf-8", errors="ignore")
-            out += (result.stdout or "") + (result.stderr or "")
-            code = 0 if "INSTALL_OK" in out else (result.returncode or 1)
-            return subprocess.CompletedProcess(["install_windows.py"], code, out, "")
-
         if shutil.which("pkexec"):
             command = ["pkexec", python, *installer_args]
         else:
@@ -264,12 +343,18 @@ class SetupApp(tk.Tk):
             output = (result.stdout or "") + (result.stderr or "")
             self._log(output.strip() or "(sem saida)")
             if result.returncode == 0 and "INSTALL_OK" in output:
-                msg = (
-                    "Instalacao concluida.\n"
-                    "O gravador inicia sozinho quando o usuario fizer login."
-                    if IS_WINDOWS
-                    else "Instalacao concluida.\nO gravador inicia sozinho quando o Mini PC ligar."
-                )
+                if IS_WINDOWS:
+                    msg = (
+                        "Instalacao concluida.\n\n"
+                        "Pasta: C:\\LanceOn\\\n"
+                        "Config: C:\\LanceOn\\config.yaml\n"
+                        "O gravador inicia sozinho no login do usuario."
+                    )
+                else:
+                    msg = (
+                        "Instalacao concluida.\n"
+                        "O gravador inicia sozinho quando o Mini PC ligar."
+                    )
                 messagebox.showinfo("Lance On", msg)
             else:
                 messagebox.showerror(
@@ -285,6 +370,46 @@ def sys_executable() -> str:
     if IS_WINDOWS:
         return sys.executable
     return "/usr/bin/python3"
+
+
+def resolve_windows_python() -> str:
+    """Prefer a real python.exe (3.11+), including 3.15. Skip Microsoft Store stub."""
+    candidates: list[str] = []
+    current = sys.executable or ""
+    if current:
+        candidates.append(current)
+
+    for minor in (15, 14, 13, 12, 11):
+        try:
+            result = subprocess.run(
+                ["py", f"-3.{minor}", "-c", "import sys; print(sys.executable)"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            path = (result.stdout or "").strip()
+            if result.returncode == 0 and path and Path(path).is_file():
+                candidates.append(path)
+        except OSError:
+            pass
+
+    which = shutil.which("python") or shutil.which("python3")
+    if which:
+        candidates.append(which)
+
+    def is_store_stub(path: str) -> bool:
+        return "\\windowsapps\\" in path.replace("/", "\\").lower()
+
+    for path in candidates:
+        if path and Path(path).is_file() and not is_store_stub(path):
+            return str(Path(path).resolve())
+
+    if current:
+        return current
+    raise SystemExit(
+        "Python not found. Install Python 3.11+ from https://www.python.org/downloads/ "
+        "and check 'Add python.exe to PATH'."
+    )
 
 
 def main() -> None:

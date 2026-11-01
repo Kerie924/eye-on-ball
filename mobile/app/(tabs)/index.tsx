@@ -7,6 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import { api } from '@/src/api/client'
 import { useAuth } from '@/src/auth/AuthContext'
 import { AppBrandHeader } from '@/src/components/AppBrandHeader'
+import { WEBSITE_URL } from '@/src/config'
 import { colors } from '@/src/theme/colors'
 
 const INSTAGRAM_URL = 'https://www.instagram.com/lanceonpara?igsi=NmVsYWloeG93NWV1'
@@ -97,9 +98,16 @@ export default function HomeScreen() {
           <View style={styles.socialBtn}>
             <Ionicons name="logo-facebook" size={28} color={colors.grass} />
           </View>
-          <View style={styles.socialBtn}>
+          <Pressable
+            accessibilityRole="link"
+            accessibilityLabel="Site Lance On"
+            style={({ pressed }) => [styles.socialBtn, pressed && styles.socialPressed]}
+            onPress={() => {
+              void Linking.openURL(WEBSITE_URL)
+            }}
+          >
             <Ionicons name="globe-outline" size={28} color={colors.grass} />
-          </View>
+          </Pressable>
         </View>
       </ScrollView>
     </SafeAreaView>

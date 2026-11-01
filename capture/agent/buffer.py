@@ -28,13 +28,23 @@ class BufferRecorder:
         self.process: subprocess.Popen | None = None
         self._stop = threading.Event()
         self._cleanup_thread: threading.Thread | None = None
+        self._ffmpeg_lock = threading.Lock()
 
     def start(self) -> None:
         self.buffer_dir.mkdir(parents=True, exist_ok=True)
-        pattern = str(self.buffer_dir / "segment_%05d.mp4")
+        self._stop.clear()
+        self._start_ffmpeg()
+        if self._cleanup_thread is None or not self._cleanup_thread.is_alive():
+            self._cleanup_thread = threading.Thread(
+                target=self._cleanup_loop,
+                daemon=True,
+                name=f"cleanup-cam{self.camera.index}",
+            )
+            self._cleanup_thread.start()
 
+    def _ffmpeg_command(self, pattern: str) -> list[str]:
         if self.camera.rtsp_url.startswith("test://"):
-            command = [
+            return [
                 "ffmpeg",
                 "-hide_banner",
                 "-loglevel",
@@ -60,42 +70,71 @@ class BufferRecorder:
                 "movflags=+frag_keyframe+empty_moov+default_base_moof",
                 pattern,
             ]
-        else:
-            command = [
-                "ffmpeg",
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-rtsp_transport",
-                "tcp",
-                "-i",
-                self.camera.rtsp_url,
-                "-an",
-                "-c:v",
-                "copy",
-                "-f",
-                "segment",
-                "-segment_time",
-                str(self.segment_seconds),
-                "-reset_timestamps",
-                "1",
-                "-segment_format",
-                "mp4",
-                "-segment_format_options",
-                "movflags=+frag_keyframe+empty_moov+default_base_moof",
-                pattern,
-            ]
+        return [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-rtsp_transport",
+            "tcp",
+            "-i",
+            self.camera.rtsp_url,
+            "-an",
+            "-c:v",
+            "copy",
+            "-f",
+            "segment",
+            "-segment_time",
+            str(self.segment_seconds),
+            "-reset_timestamps",
+            "1",
+            "-segment_format",
+            "mp4",
+            "-segment_format_options",
+            "movflags=+frag_keyframe+empty_moov+default_base_moof",
+            pattern,
+        ]
 
+    def _start_ffmpeg(self) -> None:
+        pattern = str(self.buffer_dir / "segment_%05d.mp4")
+        command = self._ffmpeg_command(pattern)
         logger.info(
             "Starting buffer recorder for camera %s: %s",
             self.camera.index,
             self.camera.name,
         )
-        self.process = subprocess.Popen(command)
-        self._cleanup_thread = threading.Thread(
-            target=self._cleanup_loop, daemon=True, name=f"cleanup-cam{self.camera.index}"
+        # stdin=PIPE so we can send "q" to flush/close the active segment cleanly
+        self.process = subprocess.Popen(
+            command,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
-        self._cleanup_thread.start()
+
+    def _quit_ffmpeg(self) -> None:
+        """Ask ffmpeg to exit so the open segment file is closed and readable."""
+        proc = self.process
+        self.process = None
+        if proc is None:
+            return
+        if proc.poll() is not None:
+            return
+        try:
+            if proc.stdin is not None:
+                proc.stdin.write(b"q")
+                proc.stdin.flush()
+            proc.wait(timeout=8)
+            return
+        except Exception:
+            logger.debug("ffmpeg quit via stdin failed; terminating", exc_info=True)
+        try:
+            proc.terminate()
+            proc.wait(timeout=4)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
 
     def _cleanup_loop(self) -> None:
         while not self._stop.is_set():
@@ -118,8 +157,7 @@ class BufferRecorder:
             newest = segments[-1]
             try:
                 age = time.time() - newest.stat().st_mtime
-                # Active segment is rewritten often; drop if still hot.
-                if age < max(2.0, self.segment_seconds * 0.35):
+                if age < max(1.0, self.segment_seconds * 0.35):
                     segments = segments[:-1]
             except OSError:
                 pass
@@ -127,53 +165,66 @@ class BufferRecorder:
 
     def stop(self) -> None:
         self._stop.set()
-        if self.process and self.process.poll() is None:
-            self.process.terminate()
-            try:
-                self.process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
+        with self._ffmpeg_lock:
+            self._quit_ffmpeg()
         if self._cleanup_thread:
             self._cleanup_thread.join(timeout=2)
+            self._cleanup_thread = None
 
     def snapshot_segments(self, dest_dir: Path) -> list[Path]:
-        """Copy buffer files, including the live segment, so the clip ends at press time."""
+        """Flush the live segment (ends at button press), copy buffer, resume recording.
+
+        Previously the in-progress segment was often dropped, so clips ended up to
+        ~segment_seconds (10s) *before* the press. Flushing ffmpeg with 'q' closes
+        that file so the clip includes the action.
+        """
         dest_dir.mkdir(parents=True, exist_ok=True)
-        sources = sorted(
-            self.buffer_dir.glob("segment_*.mp4"),
-            key=lambda p: (p.stat().st_mtime, p.name),
-        )
-        copies: list[Path] = []
-        for src in sources:
-            dest = dest_dir / src.name
-            try:
-                shutil.copy2(src, dest)
-            except OSError:
-                logger.warning("Could not snapshot %s", src)
-                continue
-            if dest.stat().st_size > 0:
-                copies.append(dest)
+        with self._ffmpeg_lock:
+            self._quit_ffmpeg()
+            # Allow filesystem to finish writing the closed segment
+            time.sleep(0.25)
+            sources = sorted(
+                self.buffer_dir.glob("segment_*.mp4"),
+                key=lambda p: (p.stat().st_mtime, p.name),
+            )
+            copies: list[Path] = []
+            for src in sources:
+                dest = dest_dir / src.name
+                try:
+                    shutil.copy2(src, dest)
+                except OSError:
+                    logger.warning("Could not snapshot %s", src)
+                    continue
+                try:
+                    if dest.stat().st_size > 0:
+                        copies.append(dest)
+                except OSError:
+                    continue
+
+            # Resume rolling buffer immediately (unless service is shutting down)
+            if not self._stop.is_set():
+                try:
+                    self._start_ffmpeg()
+                except Exception:
+                    logger.exception(
+                        "Failed to restart buffer for camera %s after snapshot",
+                        self.camera.index,
+                    )
 
         if not copies:
             return []
 
+        # Remux newest in case it is still fragmented; keep it even if remux fails
         newest = copies[-1]
         closed = dest_dir / f"{newest.stem}_closed.mp4"
         if _finalize_mp4(newest, closed):
             newest.unlink(missing_ok=True)
             copies[-1] = closed
-        else:
-            logger.warning(
-                "Active segment for camera %s could not be closed; clip may end a few seconds early",
-                self.camera.index,
-            )
-            newest.unlink(missing_ok=True)
-            copies = copies[:-1]
         return copies
 
 
 def _finalize_mp4(source: Path, output_path: Path) -> bool:
-    """Remux a still-growing fragmented MP4 into a file concat can read."""
+    """Remux a fragmented MP4 into a file concat can read."""
     command = [
         "ffmpeg",
         "-hide_banner",
@@ -302,11 +353,11 @@ def _render_final_clip(
     clip_seconds: int,
     watermark_path: Path | None,
 ) -> None:
-    """Keep the last N seconds, ending at the latest captured frame."""
+    """Keep the last N seconds, ending at the latest captured frame (button press)."""
     duration = _media_duration(source)
     start = max(0.0, duration - clip_seconds) if duration > 0 else None
     if watermark_path and watermark_path.exists():
-        _render_final_clip_simple(
+        _render_final_clip_watermarked(
             source, output_path, clip_seconds, watermark_path, start=start
         )
         return
@@ -314,16 +365,20 @@ def _render_final_clip(
     if watermark_path:
         logger.warning("Watermark file missing: %s", watermark_path)
 
-    seek = ["-ss", f"{start:.3f}"] if start is not None else ["-sseof", f"-{clip_seconds}"]
+    # Input options must come before -i
+    if start is not None:
+        seek = ["-ss", f"{start:.3f}"]
+    else:
+        seek = ["-sseof", f"-{clip_seconds}"]
     command = [
         "ffmpeg",
         "-hide_banner",
         "-loglevel",
         "error",
         "-y",
+        *seek,
         "-i",
         str(source),
-        *seek,
         "-an",
         "-c:v",
         "libx264",
@@ -344,7 +399,7 @@ def _render_final_clip(
         raise RuntimeError(result.stderr.strip() or "Failed to render final clip")
 
 
-def _render_final_clip_simple(
+def _render_final_clip_watermarked(
     source: Path,
     output_path: Path,
     clip_seconds: int,
@@ -357,18 +412,25 @@ def _render_final_clip_simple(
     if start is not None:
         trim = f"trim=start={start:.3f}:duration={clip_seconds},setpts=PTS-STARTPTS"
         seek_in: list[str] = []
+        input_seek: list[str] = ["-ss", f"{start:.3f}"]
+        # Prefer filter trim when we know duration; also seek input for speed
+        use_filter_trim = True
     else:
         trim = "setpts=PTS-STARTPTS"
-        seek_in = ["-sseof", f"-{clip_seconds}"]
+        seek_in = []
+        input_seek = ["-sseof", f"-{clip_seconds}"]
+        use_filter_trim = False
 
-    def run(filter_complex: str) -> subprocess.CompletedProcess:
+    def run(filter_complex: str, *, with_input_seek: bool) -> subprocess.CompletedProcess:
+        prefix = input_seek if with_input_seek else seek_in
+        # When using input seek for watermarked path with known start, skip filter trim start
         command = [
             "ffmpeg",
             "-hide_banner",
             "-loglevel",
             "error",
             "-y",
-            *seek_in,
+            *prefix,
             "-i",
             str(source),
             "-i",
@@ -394,20 +456,40 @@ def _render_final_clip_simple(
         ]
         return subprocess.run(command, capture_output=True, text=True, check=False)
 
-    result = run(
-        f"[0:v]{trim}[base];"
-        f"[1:v][base]scale2ref=h={scale_h}:w=oh*mdar[wm][v];"
-        "[v][wm]overlay=(W-w)/2:H-h-12[out]"
-    )
-    if result.returncode != 0:
-        logger.warning("scale2ref failed; using fixed watermark height")
+    if use_filter_trim and start is not None:
+        # Seek to start then take clip_seconds (simpler than trim=start on long files)
+        fc_base = (
+            f"[0:v]setpts=PTS-STARTPTS[base];"
+            f"[1:v][base]scale2ref=h={scale_h}:w=oh*mdar[wm][v];"
+            "[v][wm]overlay=(W-w)/2:H-h-12[out]"
+        )
+        result = run(fc_base, with_input_seek=True)
+        if result.returncode != 0:
+            logger.warning("scale2ref failed; using fixed watermark height")
+            result = run(
+                "[0:v]setpts=PTS-STARTPTS[base];"
+                f"[1:v]scale=-1:{fallback_h}[wm];"
+                "[base][wm]overlay=(W-w)/2:H-h-12[out]",
+                with_input_seek=True,
+            )
+    else:
         result = run(
             f"[0:v]{trim}[base];"
-            f"[1:v]scale=-1:{fallback_h}[wm];"
-            "[base][wm]overlay=(W-w)/2:H-h-12[out]"
+            f"[1:v][base]scale2ref=h={scale_h}:w=oh*mdar[wm][v];"
+            "[v][wm]overlay=(W-w)/2:H-h-12[out]",
+            with_input_seek=True,
         )
         if result.returncode != 0:
-            raise RuntimeError(result.stderr.strip() or "Failed to render watermarked clip")
+            logger.warning("scale2ref failed; using fixed watermark height")
+            result = run(
+                f"[0:v]{trim}[base];"
+                f"[1:v]scale=-1:{fallback_h}[wm];"
+                "[base][wm]overlay=(W-w)/2:H-h-12[out]",
+                with_input_seek=True,
+            )
+
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "Failed to render watermarked clip")
 
 
 def clip_trigger_time(segment_paths: list[Path]) -> datetime:

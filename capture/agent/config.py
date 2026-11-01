@@ -1,9 +1,8 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-import yaml
-
 from agent.paths import default_data_dir
+from agent.yaml_util import safe_load
 
 MAX_CAMERAS = 6
 
@@ -76,7 +75,7 @@ def _parse_button(raw: dict | None, default_trigger: str = "1") -> ButtonConfig:
 
 def load_config(path: str | Path) -> AgentConfig:
     with open(path, encoding="utf-8") as handle:
-        raw = yaml.safe_load(handle)
+        raw = safe_load(handle)
 
     cameras = []
     for item in raw["cameras"]:
@@ -113,6 +112,7 @@ def load_config(path: str | Path) -> AgentConfig:
         # Prefer path relative to config file, then relative to agent install dir.
         candidates = [
             config_dir / watermark_path,
+            Path(r"C:\LanceOn\capture") / watermark_path,
             Path("/opt/lance-on/capture") / watermark_path,
             Path(__file__).resolve().parent.parent / watermark_path,
         ]

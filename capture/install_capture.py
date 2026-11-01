@@ -139,7 +139,7 @@ device_key: {yaml_quote(device_key)}
 
 buffer_seconds: 300
 clip_seconds: 30
-segment_seconds: 10
+segment_seconds: 2
 heartbeat_seconds: 60
 button_cooldown_seconds: 3
 queue_max_hours: 48

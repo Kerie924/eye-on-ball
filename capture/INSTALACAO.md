@@ -14,25 +14,59 @@
 ### Requisitos
 
 1. **Windows 10/11**
-2. **Python 3.12+** — https://www.python.org/downloads/  
-   Marque **Add python.exe to PATH** na instalacao.
+2. **Python 3.11+** (incluindo **3.15**) — https://www.python.org/downloads/  
+   Marque **Add python.exe to PATH**. Windows usa `ruamel.yaml` (nao precisa Visual C++).
 3. **FFmpeg** — o Setup tenta instalar com `winget`. Se falhar, instale manualmente e reinicie o PC.
 
 ### Instalacao
 
-1. Copie a pasta `capture` para o PC (USB).
-2. Clique com o botao direito em **`LanceOn-Setup.bat`** → **Executar como administrador** (ou clique duplo e aceite o UAC).
+Tudo e instalado em **`C:\LanceOn`** (pasta nova e visivel — **nao** usa ProgramData).
+
+1. Copie a pasta `capture` do USB para o PC, por exemplo para a Area de Trabalho, **ou** direto para `C:\LanceOn\setup-src`.
+2. Clique com o botao direito em **`LanceOn-Setup.bat`** → **Executar como administrador**.
 3. Preencha a chave do dispositivo, IPs das cameras, usuario/senha e (opcional) a marca d'agua.
-4. Clique **Instalar e iniciar**.
+4. Clique **Instalar e iniciar** e **aceite** o UAC.
+
+O Setup cria `C:\LanceOn\` e copia o software para la (funciona em Windows em portugues).
+
+### Se aparecer "The system cannot find the specified path" / "nao pode encontrar o caminho"
+
+1. **Nao use** o Python da Microsoft Store. Instale de https://www.python.org/downloads/  
+   Marque **Add python.exe to PATH**.
+2. Log: `C:\LanceOn\setup-staging\lanceon-install.log`
+3. Instalacao manual:
+
+```bat
+mkdir C:\LanceOn
+cd /d C:\caminho\para\capture
+python install_windows.py --source "%CD%" --settings C:\LanceOn\settings.json
+```
+
+(Opcional) outra unidade: `set LANCEON_HOME=D:\LanceOn` antes de instalar.
 
 ### Onde fica no Windows
 
 | Item | Caminho |
 |------|---------|
-| Software | `C:\ProgramData\LanceOn\capture` |
-| Config | `C:\ProgramData\LanceOn\config.yaml` |
-| Videos / fila | `C:\ProgramData\LanceOn\data` |
-| Logs | `C:\ProgramData\LanceOn\logs\capture.log` |
+| Pasta principal | `C:\LanceOn\` |
+| **App de controle** (abrir sempre) | `C:\LanceOn\LanceOn.bat` ou atalho **Lance On** na Area de Trabalho |
+| Software | `C:\LanceOn\capture` |
+| Config | `C:\LanceOn\config.yaml` |
+| Videos / fila | `C:\LanceOn\data` |
+| Logs | `C:\LanceOn\logs\capture.log` |
+| Start / stop | `C:\LanceOn\start-capture.bat` etc. |
+
+### App de controle (Windows)
+
+Abra **`C:\LanceOn\LanceOn.bat`** (ou o atalho na Area de Trabalho) para:
+
+- Ver se o gravador esta rodando
+- **Iniciar / Parar**
+- Alterar **IPs das cameras**, usuario/senha
+- Trocar a **logo / marca d'agua**
+- Clicar **Salvar e reiniciar gravador**
+
+Nao e preciso editar YAML na mao.
 
 ### Botoes no Windows
 
@@ -52,14 +86,14 @@ App **PRONTO** / admin **Gravar** tambem funcionam (internet).
 ```bat
 schtasks /Run /TN LanceOnCapture
 schtasks /End /TN LanceOnCapture
-type C:\ProgramData\LanceOn\logs\capture.log
+type C:\LanceOn\logs\capture.log
 ```
 
 Ou use:
 
-- `C:\ProgramData\LanceOn\start-capture.bat`
-- `C:\ProgramData\LanceOn\stop-capture.bat`
-- `C:\ProgramData\LanceOn\status-capture.bat`
+- `C:\LanceOn\start-capture.bat`
+- `C:\LanceOn\stop-capture.bat`
+- `C:\LanceOn\status-capture.bat`
 
 O gravador inicia no **login do usuario** (para os botoes de teclado funcionarem). Em quadra, configure login automatico no Windows.
 
@@ -105,6 +139,11 @@ Configuracao: `/etc/lance-on/config.yaml`
 ## Sem internet
 
 O botao grava o clip no PC mesmo sem internet. Os arquivos ficam na fila de upload e sao enviados quando a API voltar; so sao apagados depois do upload. Clips com mais de 48 h (ou se o disco passar de 4 GB) sao descartados. O app so mostra o video depois que ele chegar na nuvem.
+
+## Clip no botao (importante)
+
+O gravador fecha o segmento ao vivo no momento do botao (FFmpeg `q`) e monta os ultimos 30s **ate o press**.  
+Segmentos curtos (`segment_seconds: 2`) evitam o problema antigo em que o video terminava ~10s *antes* do botao.
 
 ## Painel admin
 

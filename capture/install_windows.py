@@ -12,10 +12,21 @@ import sys
 from pathlib import Path
 from urllib.parse import quote
 
+# Prefer package import; fall back if run as a loose script before copy.
+try:
+    from agent.paths import DEFAULT_WINDOWS_HOME, program_data_root
+except ImportError:  # pragma: no cover
+    DEFAULT_WINDOWS_HOME = Path(r"C:\LanceOn")
+
+    def program_data_root() -> Path:  # type: ignore[misc]
+        override = (os.environ.get("LANCEON_HOME") or "").strip()
+        return Path(override) if override else DEFAULT_WINDOWS_HOME
+
 # Camera index -> keyboard key for USB/HID arcade buttons
 DEFAULT_KEYS = {1: "f1", 2: "f2", 3: "f3", 4: "f4", 5: "f5", 6: "f6"}
 DEFAULT_API_URL = "https://api.lanceonpara.com.br"
-INSTALL_ROOT = Path(os.environ.get("PROGRAMDATA", r"C:\ProgramData")) / "LanceOn"
+# Visible folder on every Windows language (not ProgramData).
+INSTALL_ROOT = program_data_root()
 INSTALL_DIR = INSTALL_ROOT / "capture"
 CONFIG_PATH = INSTALL_ROOT / "config.yaml"
 DATA_DIR = INSTALL_ROOT / "data"
@@ -54,8 +65,62 @@ def require_admin() -> None:
     raise SystemExit("Run this installer as Administrator (right-click → Run as administrator).")
 
 
+def _python_version(executable: str) -> tuple[int, int] | None:
+    try:
+        result = subprocess.run(
+            [executable, "-c", "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        text = (result.stdout or "").strip()
+        if result.returncode != 0 or "." not in text:
+            return None
+        major_s, minor_s = text.split(".", 1)
+        return int(major_s), int(minor_s)
+    except (OSError, ValueError):
+        return None
+
+
 def find_python() -> str:
-    return sys.executable
+    """Use the best available Python 3.11+ (including 3.15). Skip Microsoft Store stub."""
+    candidates: list[str] = []
+
+    # Prefer current process, then py launcher versions, then PATH
+    if sys.executable:
+        candidates.append(sys.executable)
+    for minor in (15, 14, 13, 12, 11):
+        for args in (
+            ["py", f"-3.{minor}", "-c", "import sys; print(sys.executable)"],
+            [f"python3.{minor}", "-c", "import sys; print(sys.executable)"],
+        ):
+            try:
+                result = subprocess.run(args, capture_output=True, text=True, check=False)
+                path = (result.stdout or "").strip()
+                if result.returncode == 0 and path and Path(path).is_file():
+                    candidates.append(path)
+            except OSError:
+                continue
+    which = shutil.which("python") or shutil.which("python3")
+    if which:
+        candidates.append(which)
+
+    seen: set[str] = set()
+    for path in candidates:
+        key = str(Path(path).resolve()).lower() if Path(path).exists() else path.lower()
+        if key in seen or "\\windowsapps\\" in key.replace("/", "\\"):
+            continue
+        seen.add(key)
+        ver = _python_version(path)
+        if ver is None or ver[0] != 3 or ver[1] < 11:
+            continue
+        log(f"Using Python {ver[0]}.{ver[1]}: {path}")
+        return path
+
+    raise SystemExit(
+        "Python 3.11+ not found. Install from https://www.python.org/downloads/\n"
+        "Check 'Add python.exe to PATH'."
+    )
 
 
 def ensure_ffmpeg() -> None:
@@ -105,16 +170,34 @@ def copy_agent(source: Path) -> None:
 
 
 def install_python_deps() -> Path:
+    host_python = find_python()
     venv = INSTALL_DIR / ".venv"
     python = venv / "Scripts" / "python.exe"
     pip = venv / "Scripts" / "pip.exe"
-    if not python.exists():
-        run([find_python(), "-m", "venv", str(venv)])
-    run([str(pip), "install", "--upgrade", "pip"])
+    # Recreate venv if missing or built with a different host interpreter
+    recreate = not python.exists()
+    if python.exists():
+        ver = _python_version(str(python))
+        host_ver = _python_version(host_python)
+        if ver is None or (host_ver and ver != host_ver):
+            log(f"Recreating venv (was {ver}, host {host_ver})...")
+            shutil.rmtree(venv)
+            recreate = True
+    if recreate:
+        run([host_python, "-m", "venv", str(venv)])
+    run([str(pip), "install", "--upgrade", "pip", "wheel"])
     req = INSTALL_DIR / "requirements-windows.txt"
     if not req.exists():
         req = INSTALL_DIR / "requirements.txt"
-    run([str(pip), "install", "-r", str(req)])
+    # Prefer binary wheels; Windows deps use ruamel.yaml (no MSVC needed on 3.15)
+    try:
+        run([str(pip), "install", "--prefer-binary", "-r", str(req)])
+    except subprocess.CalledProcessError as exc:
+        raise SystemExit(
+            "Failed to install Python packages.\n"
+            "Delete C:\\LanceOn\\capture\\.venv and run Setup again.\n"
+            f"Details: {exc}"
+        ) from exc
     return python
 
 
@@ -174,7 +257,8 @@ device_key: {yaml_quote(device_key)}
 
 buffer_seconds: 300
 clip_seconds: 30
-segment_seconds: 10
+# Short segments reduce max lag if a flush ever fails (was 10s → early cutoff reports)
+segment_seconds: 2
 heartbeat_seconds: 60
 button_cooldown_seconds: 3
 queue_max_hours: 48
@@ -192,14 +276,17 @@ watermark_path: {yaml_quote(str(watermark).replace(chr(92), "/"))}
     log(f"Wrote {CONFIG_PATH}")
 
 
-def write_helper_scripts(python: Path) -> None:
+def write_helper_scripts(python: Path) -> Path:
     start = INSTALL_ROOT / "start-capture.bat"
     stop = INSTALL_ROOT / "stop-capture.bat"
     status = INSTALL_ROOT / "status-capture.bat"
+    control = INSTALL_ROOT / "LanceOn.bat"
     start.write_text(
         "\n".join(
             [
                 "@echo off",
+                "setlocal",
+                f'cd /d "{INSTALL_DIR}"',
                 f'"{python}" "{INSTALL_DIR / "run.py"}" --config "{CONFIG_PATH}"',
             ]
         )
@@ -230,14 +317,64 @@ def write_helper_scripts(python: Path) -> None:
         + "\n",
         encoding="utf-8",
     )
+    # Double-click app to edit IPs / watermark and start/stop capture
+    control.write_text(
+        "\n".join(
+            [
+                "@echo off",
+                "setlocal",
+                f'cd /d "{INSTALL_DIR}"',
+                f'"{python}" "{INSTALL_DIR / "control_app.py"}"',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    _create_desktop_shortcut(control)
     log(f"Helper scripts in {INSTALL_ROOT}")
+    log(f"Open anytime: {control}")
+    return start
 
 
-def install_startup_task(python: Path) -> None:
-    """Run at user logon so keyboard/USB buttons work in an interactive session."""
-    tr = f'"{python}" "{INSTALL_DIR / "run.py"}" --config "{CONFIG_PATH}"'
+def _create_desktop_shortcut(target_bat: Path) -> None:
+    """Create Desktop\\Lance On.lnk → LanceOn.bat (best-effort)."""
+    try:
+        desktop = Path(os.environ.get("PUBLIC", r"C:\Users\Public")) / "Desktop"
+        if not desktop.is_dir():
+            user_profile = os.environ.get("USERPROFILE")
+            if user_profile:
+                desktop = Path(user_profile) / "Desktop"
+        if not desktop.is_dir():
+            return
+        shortcut = desktop / "Lance On.lnk"
+        ps = (
+            f"$ws = New-Object -ComObject WScript.Shell; "
+            f"$s = $ws.CreateShortcut('{str(shortcut).replace(chr(39), chr(39)+chr(39))}'); "
+            f"$s.TargetPath = '{str(target_bat).replace(chr(39), chr(39)+chr(39))}'; "
+            f"$s.WorkingDirectory = '{str(INSTALL_ROOT).replace(chr(39), chr(39)+chr(39))}'; "
+            f"$s.Description = 'Lance On Controle da Quadra'; "
+            f"$s.Save()"
+        )
+        subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        log(f"Desktop shortcut: {shortcut}")
+    except Exception as exc:
+        log(f"WARNING: could not create desktop shortcut ({exc})")
+
+
+def install_startup_task(start_bat: Path) -> None:
+    """Run at user logon so keyboard/USB buttons work in an interactive session.
+
+    Point the task at start-capture.bat (not a nested quoted python command).
+    Nested quotes in schtasks /TR often fail with "cannot find the specified path".
+    """
     # Remove old task if present
     subprocess.run(["schtasks", "/Delete", "/TN", TASK_NAME, "/F"], check=False)
+    # /TR with a single .bat path is reliable on Windows 10/11
     run(
         [
             "schtasks",
@@ -245,7 +382,7 @@ def install_startup_task(python: Path) -> None:
             "/TN",
             TASK_NAME,
             "/TR",
-            tr,
+            str(start_bat),
             "/SC",
             "ONLOGON",
             "/RL",
@@ -254,7 +391,12 @@ def install_startup_task(python: Path) -> None:
         ]
     )
     # Start now
-    subprocess.run(["schtasks", "/Run", "/TN", TASK_NAME], check=False)
+    run_now = subprocess.run(["schtasks", "/Run", "/TN", TASK_NAME], check=False)
+    if run_now.returncode != 0:
+        log(
+            "WARNING: Scheduled task created but could not start immediately. "
+            f"Try: schtasks /Run /TN {TASK_NAME}"
+        )
     log(f"Scheduled task {TASK_NAME} created (starts at logon).")
 
 
@@ -278,6 +420,13 @@ def main() -> int:
     if not cameras:
         raise SystemExit("At least one camera IP is required.")
 
+    log(f"Source: {source}")
+    log(f"Install root: {INSTALL_ROOT}")
+    log(f"Python: {find_python()}")
+    if not source.is_dir() or not (source / "run.py").is_file():
+        raise SystemExit(f"Invalid capture source folder: {source}")
+
+    INSTALL_ROOT.mkdir(parents=True, exist_ok=True)
     log("Checking FFmpeg...")
     ensure_ffmpeg()
     copy_agent(source)
@@ -285,11 +434,12 @@ def main() -> int:
     python = install_python_deps()
     watermark = install_watermark(settings.get("watermark_path"))
     write_config(settings, watermark)
-    write_helper_scripts(python)
-    install_startup_task(python)
+    start_bat = write_helper_scripts(python)
+    install_startup_task(start_bat)
     log("INSTALL_OK")
     log(f"Config: {CONFIG_PATH}")
     log(f"Logs:   {LOG_DIR / 'capture.log'}")
+    log(f"Start:  {start_bat}")
     return 0
 
 

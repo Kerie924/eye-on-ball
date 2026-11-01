@@ -86,7 +86,7 @@ device_key: ${DEVICE_KEY}
 
 buffer_seconds: 300
 clip_seconds: 30
-segment_seconds: 10
+segment_seconds: 2
 heartbeat_seconds: 60
 button_cooldown_seconds: 3
 

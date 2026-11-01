@@ -1,12 +1,13 @@
 # Lance On - Court Capture Agent (Windows)
-# Installs to C:\ProgramData\LanceOn\
+# Installs to C:\LanceOn\  (visible folder; no ProgramData required)
+# Override root with env var LANCEON_HOME if needed.
 
 api_url: https://api.lanceonpara.com.br
 device_key: PASTE_DEVICE_KEY_FROM_ADMIN_PANEL
 
 buffer_seconds: 300
 clip_seconds: 30
-segment_seconds: 10
+segment_seconds: 2
 heartbeat_seconds: 60
 button_cooldown_seconds: 3
 queue_max_hours: 48
@@ -32,4 +33,4 @@ cameras:
       type: keyboard
       key: f2
 
-data_dir: C:/ProgramData/LanceOn/data
+data_dir: C:/LanceOn/data

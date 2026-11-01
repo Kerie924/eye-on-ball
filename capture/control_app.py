@@ -1,0 +1,451 @@
+#!/usr/bin/env python3
+"""Lance On Control — Windows app to start/stop capture and edit cameras / watermark."""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import threading
+from pathlib import Path
+from tkinter import filedialog, messagebox
+import tkinter as tk
+from urllib.parse import quote, unquote, urlparse
+
+# Allow running from C:\LanceOn\capture or repo checkout
+ROOT = Path(__file__).resolve().parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from agent.paths import (  # noqa: E402
+    default_config_path,
+    default_install_dir,
+    default_log_dir,
+    program_data_root,
+)
+from agent.yaml_util import safe_load  # noqa: E402
+
+IS_WINDOWS = sys.platform.startswith("win")
+MAX_CAMERAS = 6
+BG = "#0f1117"
+FG = "#f5f5f5"
+MUTED = "#9ca3af"
+GREEN = "#22c55e"
+CARD = "#1a1f2e"
+TASK_NAME = "LanceOnCapture"
+DEFAULT_API_URL = "https://api.lanceonpara.com.br"
+
+
+def _rtsp_url(user: str, password: str, ip: str) -> str:
+    return (
+        f"rtsp://{quote(user, safe='')}:{quote(password, safe='')}@{ip.strip()}"
+        ":554/cam/realmonitor?channel=1&subtype=0"
+    )
+
+
+def _parse_rtsp(url: str) -> tuple[str, str, str]:
+    """Return (user, password, host) from an RTSP URL."""
+    try:
+        parsed = urlparse(url)
+        user = unquote(parsed.username or "admin")
+        password = unquote(parsed.password or "")
+        host = parsed.hostname or ""
+        return user, password, host
+    except Exception:
+        return "admin", "", ""
+
+
+def _yaml_quote(value: str) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
+class ControlApp(tk.Tk):
+    def __init__(self) -> None:
+        super().__init__()
+        self.title("Lance On — Controle da quadra")
+        self.configure(bg=BG)
+        self.minsize(640, 700)
+
+        self.install_root = program_data_root()
+        self.config_path = default_config_path()
+        self.capture_dir = default_install_dir()
+        self.log_dir = default_log_dir()
+        self.watermark_dest = self.capture_dir / "assets" / "video-watermark.jpeg"
+
+        self.api_url = tk.StringVar(value=DEFAULT_API_URL)
+        self.device_key = tk.StringVar()
+        self.camera_user = tk.StringVar(value="admin")
+        self.camera_password = tk.StringVar()
+        self.camera_count = tk.IntVar(value=2)
+        self.watermark_path = tk.StringVar(value="")
+        self.status_text = tk.StringVar(value="Verificando...")
+        self.camera_ips = [tk.StringVar() for _ in range(MAX_CAMERAS)]
+
+        self._build()
+        self._load_config()
+        self._refresh_status()
+        self.after(4000, self._poll_status)
+
+    def _build(self) -> None:
+        outer = tk.Frame(self, bg=BG, padx=24, pady=20)
+        outer.pack(fill=tk.BOTH, expand=True)
+
+        tk.Label(outer, text="Lance On", fg=GREEN, bg=BG, font=("Segoe UI", 22, "bold")).pack(
+            anchor="w"
+        )
+        tk.Label(
+            outer,
+            text="Controle do gravador — altere IPs e logo, depois salve e reinicie.",
+            fg=MUTED,
+            bg=BG,
+            font=("Segoe UI", 11),
+        ).pack(anchor="w", pady=(0, 12))
+
+        status = tk.Frame(outer, bg=CARD, padx=16, pady=12)
+        status.pack(fill=tk.X, pady=(0, 12))
+        tk.Label(status, text="Status", fg=MUTED, bg=CARD).pack(anchor="w")
+        tk.Label(
+            status, textvariable=self.status_text, fg=FG, bg=CARD, font=("Segoe UI", 12, "bold")
+        ).pack(anchor="w")
+
+        btn_row = tk.Frame(outer, bg=BG)
+        btn_row.pack(fill=tk.X, pady=(0, 12))
+        tk.Button(
+            btn_row, text="Iniciar", bg=GREEN, fg="#052e16", command=self._start_capture, padx=12
+        ).pack(side=tk.LEFT, padx=(0, 8))
+        tk.Button(
+            btn_row, text="Parar", bg="#374151", fg=FG, command=self._stop_capture, padx=12
+        ).pack(side=tk.LEFT, padx=(0, 8))
+        tk.Button(
+            btn_row, text="Abrir logs", bg="#374151", fg=FG, command=self._open_logs, padx=12
+        ).pack(side=tk.LEFT)
+
+        form = tk.Frame(outer, bg=CARD, padx=18, pady=16)
+        form.pack(fill=tk.BOTH, expand=True)
+
+        self._field(form, "URL da API", self.api_url)
+        self._field(form, "Chave do dispositivo", self.device_key)
+        self._field(form, "Usuario da camera", self.camera_user)
+        self._field(form, "Senha da camera", self.camera_password, show="*")
+
+        count_row = tk.Frame(form, bg=CARD)
+        count_row.pack(fill=tk.X, pady=8)
+        tk.Label(count_row, text="Quantidade de cameras", fg=FG, bg=CARD).pack(anchor="w")
+        spin = tk.Spinbox(
+            count_row,
+            from_=1,
+            to=MAX_CAMERAS,
+            textvariable=self.camera_count,
+            width=6,
+            command=self._refresh_cameras,
+        )
+        spin.pack(anchor="w", pady=(4, 0))
+        spin.bind("<KeyRelease>", lambda _e: self._refresh_cameras())
+        spin.bind("<ButtonRelease-1>", lambda _e: self.after(50, self._refresh_cameras))
+
+        self.camera_frame = tk.Frame(form, bg=CARD)
+        self.camera_frame.pack(fill=tk.X, pady=8)
+        self.ip_rows: list[tk.Frame] = []
+        for index in range(MAX_CAMERAS):
+            row = tk.Frame(self.camera_frame, bg=CARD)
+            tk.Label(row, text=f"IP da camera {index + 1}", fg=FG, bg=CARD).pack(anchor="w")
+            tk.Entry(row, textvariable=self.camera_ips[index], width=40).pack(
+                anchor="w", pady=(2, 8)
+            )
+            self.ip_rows.append(row)
+
+        mark = tk.Frame(form, bg=CARD)
+        mark.pack(fill=tk.X, pady=8)
+        tk.Label(mark, text="Logo / marca d'agua (imagem)", fg=FG, bg=CARD).pack(anchor="w")
+        pick = tk.Frame(mark, bg=CARD)
+        pick.pack(fill=tk.X)
+        tk.Entry(pick, textvariable=self.watermark_path).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        tk.Button(pick, text="Escolher...", command=self._pick_watermark).pack(
+            side=tk.LEFT, padx=(8, 0)
+        )
+
+        tk.Button(
+            outer,
+            text="Salvar e reiniciar gravador",
+            bg=GREEN,
+            fg="#052e16",
+            font=("Segoe UI", 13, "bold"),
+            command=self._save_and_restart,
+            pady=10,
+        ).pack(fill=tk.X, pady=(16, 8))
+
+        self.log = tk.Text(outer, height=6, bg="#111827", fg=FG, relief=tk.FLAT)
+        self.log.pack(fill=tk.BOTH, expand=True)
+        self._refresh_cameras()
+
+    def _field(self, parent: tk.Frame, label: str, var: tk.StringVar, show: str = "") -> None:
+        tk.Label(parent, text=label, fg=FG, bg=CARD).pack(anchor="w", pady=(8, 0))
+        tk.Entry(parent, textvariable=var, show=show, width=48).pack(anchor="w", pady=(2, 0))
+
+    def _refresh_cameras(self) -> None:
+        try:
+            count = int(self.camera_count.get())
+        except (tk.TclError, ValueError):
+            count = 1
+        count = max(1, min(MAX_CAMERAS, count))
+        for index, row in enumerate(self.ip_rows):
+            if index < count:
+                row.pack(fill=tk.X)
+            else:
+                row.pack_forget()
+
+    def _pick_watermark(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Logo / marca d'agua",
+            filetypes=[("Imagens", "*.jpg *.jpeg *.png *.webp"), ("Todos", "*.*")],
+        )
+        if path:
+            self.watermark_path.set(path)
+
+    def _append(self, message: str) -> None:
+        self.log.insert(tk.END, message + "\n")
+        self.log.see(tk.END)
+
+    def _load_config(self) -> None:
+        if not self.config_path.is_file():
+            self._append(f"Config nao encontrada: {self.config_path}")
+            self._append("Rode o instalador (LanceOn-Setup.bat) primeiro.")
+            return
+        try:
+            with self.config_path.open(encoding="utf-8") as handle:
+                raw = safe_load(handle) or {}
+        except Exception as exc:
+            self._append(f"Erro ao ler config: {exc}")
+            return
+
+        self.api_url.set(str(raw.get("api_url") or DEFAULT_API_URL))
+        self.device_key.set(str(raw.get("device_key") or ""))
+        cameras = raw.get("cameras") or []
+        self.camera_count.set(max(1, min(MAX_CAMERAS, len(cameras) or 2)))
+        user = "admin"
+        password = ""
+        for index, cam in enumerate(cameras[:MAX_CAMERAS]):
+            u, p, host = _parse_rtsp(str(cam.get("rtsp_url") or ""))
+            if index == 0:
+                user, password = u, p
+            self.camera_ips[index].set(host)
+        self.camera_user.set(user)
+        self.camera_password.set(password)
+        wm = raw.get("watermark_path")
+        if wm:
+            self.watermark_path.set(str(wm))
+        self._refresh_cameras()
+        self._append(f"Config carregada: {self.config_path}")
+
+    def _is_running(self) -> bool:
+        if not IS_WINDOWS:
+            return False
+        # Scheduled task query
+        result = subprocess.run(
+            ["schtasks", "/Query", "/TN", TASK_NAME],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        text = (result.stdout or "") + (result.stderr or "")
+        if result.returncode != 0:
+            return False
+        # Also look for run.py process
+        wmic = subprocess.run(
+            [
+                "wmic",
+                "process",
+                "where",
+                "CommandLine like '%LanceOn%run.py%'",
+                "get",
+                "ProcessId",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        pids = re.findall(r"\d+", wmic.stdout or "")
+        return "Running" in text or len(pids) > 0
+
+    def _refresh_status(self) -> None:
+        if self._is_running():
+            self.status_text.set("Gravador em execucao")
+        else:
+            self.status_text.set("Gravador parado")
+
+    def _poll_status(self) -> None:
+        self._refresh_status()
+        self.after(4000, self._poll_status)
+
+    def _start_capture(self) -> None:
+        def work() -> None:
+            start_bat = self.install_root / "start-capture.bat"
+            if start_bat.is_file():
+                subprocess.run(["cmd", "/c", str(start_bat)], check=False)
+            else:
+                subprocess.run(["schtasks", "/Run", "/TN", TASK_NAME], check=False)
+            self.after(0, lambda: (self._append("Comando iniciar enviado."), self._refresh_status()))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _stop_capture(self) -> None:
+        def work() -> None:
+            stop_bat = self.install_root / "stop-capture.bat"
+            if stop_bat.is_file():
+                subprocess.run(["cmd", "/c", str(stop_bat)], check=False)
+            else:
+                subprocess.run(["schtasks", "/End", "/TN", TASK_NAME], check=False)
+            self.after(0, lambda: (self._append("Comando parar enviado."), self._refresh_status()))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _open_logs(self) -> None:
+        self.log_dir.mkdir(parents=True, exist_ok=True)
+        if IS_WINDOWS:
+            os.startfile(str(self.log_dir))  # type: ignore[attr-defined]
+        else:
+            subprocess.run(["xdg-open", str(self.log_dir)], check=False)
+
+    def _collect_settings(self) -> dict | None:
+        if not self.device_key.get().strip():
+            messagebox.showerror("Lance On", "Informe a chave do dispositivo.")
+            return None
+        if not self.camera_password.get():
+            messagebox.showerror("Lance On", "Informe a senha das cameras.")
+            return None
+        try:
+            count = int(self.camera_count.get())
+        except (tk.TclError, ValueError):
+            messagebox.showerror("Lance On", "Quantidade de cameras invalida.")
+            return None
+        cameras = []
+        for index in range(count):
+            ip = self.camera_ips[index].get().strip()
+            if not ip:
+                messagebox.showerror("Lance On", f"Informe o IP da camera {index + 1}.")
+                return None
+            cameras.append({"index": index + 1, "ip": ip})
+        return {
+            "api_url": self.api_url.get().strip() or DEFAULT_API_URL,
+            "device_key": self.device_key.get().strip(),
+            "camera_user": self.camera_user.get().strip() or "admin",
+            "camera_password": self.camera_password.get(),
+            "cameras": cameras,
+            "watermark_path": self.watermark_path.get().strip() or None,
+            "use_gpio": True,
+        }
+
+    def _write_config(self, settings: dict) -> None:
+        self.install_root.mkdir(parents=True, exist_ok=True)
+        (self.install_root / "data").mkdir(parents=True, exist_ok=True)
+        (self.install_root / "logs").mkdir(parents=True, exist_ok=True)
+        self.watermark_dest.parent.mkdir(parents=True, exist_ok=True)
+
+        selected = settings.get("watermark_path")
+        if selected:
+            src = Path(str(selected)).expanduser()
+            if src.is_file() and src.resolve() != self.watermark_dest.resolve():
+                shutil.copy2(src, self.watermark_dest)
+                self._append(f"Logo atualizada: {self.watermark_dest}")
+        elif not self.watermark_dest.is_file():
+            bundled = self.capture_dir / "assets" / "video-watermark.jpeg"
+            if bundled.is_file():
+                shutil.copy2(bundled, self.watermark_dest)
+
+        user = settings["camera_user"]
+        password = settings["camera_password"]
+        use_buttons = bool(settings.get("use_gpio", True))
+        camera_lines = []
+        for item in settings["cameras"]:
+            index = int(item["index"])
+            key = f"f{index}"
+            button = (
+                f"    button:\n      type: keyboard\n      key: {key}"
+                if use_buttons
+                else "    button:\n      type: none"
+            )
+            camera_lines.append(
+                "\n".join(
+                    [
+                        f"  - index: {index}",
+                        f"    name: Camera {index}",
+                        f"    rtsp_url: {_yaml_quote(_rtsp_url(user, password, item['ip']))}",
+                        button,
+                    ]
+                )
+            )
+
+        content = f"""# Updated by Lance On Control
+api_url: {_yaml_quote(settings['api_url'])}
+device_key: {_yaml_quote(settings['device_key'])}
+
+buffer_seconds: 300
+clip_seconds: 30
+segment_seconds: 2
+heartbeat_seconds: 60
+button_cooldown_seconds: 3
+queue_max_hours: 48
+queue_max_mb: 4096
+upload_retry_seconds: 20
+
+cameras:
+{chr(10).join(camera_lines)}
+
+data_dir: {_yaml_quote(str((self.install_root / 'data')).replace(chr(92), '/'))}
+watermark_path: {_yaml_quote(str(self.watermark_dest).replace(chr(92), '/'))}
+"""
+        self.config_path.write_text(content, encoding="utf-8")
+        self._append(f"Config salva: {self.config_path}")
+
+    def _save_and_restart(self) -> None:
+        settings = self._collect_settings()
+        if not settings:
+            return
+
+        def work() -> None:
+            try:
+                self.after(0, lambda: self._append("Parando gravador..."))
+                stop_bat = self.install_root / "stop-capture.bat"
+                if stop_bat.is_file():
+                    subprocess.run(["cmd", "/c", str(stop_bat)], check=False)
+                else:
+                    subprocess.run(["schtasks", "/End", "/TN", TASK_NAME], check=False)
+                self._write_config(settings)
+                self.after(0, lambda: self._append("Iniciando gravador..."))
+                start_bat = self.install_root / "start-capture.bat"
+                if start_bat.is_file():
+                    subprocess.run(["cmd", "/c", str(start_bat)], check=False)
+                else:
+                    subprocess.run(["schtasks", "/Run", "/TN", TASK_NAME], check=False)
+                self.after(
+                    0,
+                    lambda: (
+                        self._append("Pronto. IPs/logo aplicados."),
+                        self._refresh_status(),
+                        messagebox.showinfo(
+                            "Lance On",
+                            "Configuracao salva e gravador reiniciado.",
+                        ),
+                    ),
+                )
+            except Exception as exc:
+                self.after(
+                    0,
+                    lambda: messagebox.showerror("Lance On", f"Falha ao salvar: {exc}"),
+                )
+
+        threading.Thread(target=work, daemon=True).start()
+
+
+def main() -> None:
+    if not IS_WINDOWS:
+        print("This control app is intended for Windows court PCs.", file=sys.stderr)
+    app = ControlApp()
+    app.mainloop()
+
+
+if __name__ == "__main__":
+    main()

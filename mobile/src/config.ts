@@ -8,6 +8,7 @@ function resolveApiUrl(): string {
 }
 
 export const API_URL = resolveApiUrl()
+export const WEBSITE_URL = 'https://lanceonpara.com.br/'
 export const PRIVACY_URL = `${API_URL}/api/legal/privacy`
 export const TERMS_URL = `${API_URL}/api/legal/terms`
 

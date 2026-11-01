@@ -1,4 +1,6 @@
-pyyaml==6.0.2
-requests==2.32.3
-pyserial==3.5
-pynput==1.8.1
+# Pure-Python friendly (works on Python 3.15 without Visual C++ Build Tools).
+# PyYAML often has no cp315 Windows wheel and fails compiling libyaml.
+ruamel.yaml>=0.18.0
+requests>=2.32.3
+pyserial>=3.5
+pynput>=1.8.1
