@@ -1,5 +1,6 @@
 @echo off
 REM Open Lance On control panel (edit IPs / watermark, start/stop).
+setlocal EnableExtensions
 cd /d "%~dp0"
 
 if exist "C:\LanceOn\LanceOn.bat" (
@@ -7,12 +8,11 @@ if exist "C:\LanceOn\LanceOn.bat" (
   exit /b %ERRORLEVEL%
 )
 
-where python >nul 2>&1
-if errorlevel 1 (
-  echo Python not found. Install Python 3.11+ from python.org
-  pause
-  exit /b 1
+if defined LANCEON_HOME if exist "%LANCEON_HOME%\LanceOn.bat" (
+  call "%LANCEON_HOME%\LanceOn.bat"
+  exit /b %ERRORLEVEL%
 )
 
-python "%~dp0control_app.py"
-if errorlevel 1 pause
+REM Fallback: run from this capture folder (USB / before install finishes)
+call "%~dp0LanceOn.bat"
+exit /b %ERRORLEVEL%

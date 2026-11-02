@@ -9,57 +9,126 @@ from agent.paths import mock_trigger_path
 
 logger = logging.getLogger(__name__)
 
+READY_TOKEN = "LANCEON_BUTTONS_READY"
 
-def resolve_serial_port(preferred: str | None = None) -> str | None:
-    """Pick a USB-serial adapter (Arduino / CH340 / CP210x) or an explicit COM port."""
+# Prefer real USB-serial adapters; never silently pick motherboard COM1.
+_USB_KEYWORDS = (
+    "arduino",
+    "ch340",
+    "ch341",
+    "cp210",
+    "usb serial",
+    "usb-serial",
+    "usb2.0-serial",
+    "uart",
+    "esp",
+    "silicon labs",
+    "wch",
+    "ftdi",
+    "usb-to-serial",
+    "usb to serial",
+)
+_USB_VID_HINTS = (
+    "VID_2341",  # Arduino
+    "VID_1A86",  # CH340
+    "VID_10C4",  # Silicon Labs CP210x
+    "VID_0403",  # FTDI
+    "VID_2A03",  # Arduino.org
+    "VID_239A",  # Adafruit
+)
+
+
+def _port_blob(port) -> str:
+    return " ".join(
+        filter(None, [port.device, port.description, port.manufacturer, port.hwid])
+    )
+
+
+def is_builtin_com_port(port) -> bool:
+    """True for motherboard 'Communications Port (COM1)' style devices."""
+    hwid = (port.hwid or "").upper()
+    desc = (port.description or "").lower()
+    if "USB" in hwid:
+        return False
+    if "PNP0501" in hwid or hwid.startswith("ACPI\\"):
+        return True
+    if "communications port" in desc and "USB" not in hwid:
+        return True
+    return False
+
+
+def is_usb_serial_candidate(port) -> bool:
+    if is_builtin_com_port(port):
+        return False
+    blob = _port_blob(port).lower()
+    hwid = (port.hwid or "").upper()
+    if any(token in blob for token in _USB_KEYWORDS):
+        return True
+    if any(vid in hwid for vid in _USB_VID_HINTS):
+        return True
+    # Generic USB serial device node on Linux / some Windows adapters
+    device = (port.device or "").lower()
+    if device.startswith(("/dev/ttyusb", "/dev/ttyacm", "/dev/cu.usb")):
+        return True
+    if "USB" in hwid and ("SER" in hwid or "SERIAL" in blob.upper()):
+        return True
+    return False
+
+
+def serial_port_candidates(preferred: str | None = None) -> list[str]:
+    """Ordered COM ports to try for the Arduino hub."""
     preferred = (preferred or "").strip()
     if preferred and preferred.lower() not in {"auto", "default", ""}:
-        return preferred
+        return [preferred]
 
     try:
         from serial.tools import list_ports
     except ImportError:
         logger.warning("pyserial not installed; cannot auto-detect COM port")
-        return None
+        return []
 
     ports = list(list_ports.comports())
-    if not ports:
-        return None
-
-    keywords = (
-        "arduino",
-        "ch340",
-        "ch341",
-        "cp210",
-        "usb serial",
-        "usb-serial",
-        "usb2.0-serial",
-        "uart",
-        "esp",
-        "silicon labs",
-        "wch",
-    )
+    preferred_matches: list[str] = []
+    other_usb: list[str] = []
     for port in ports:
-        blob = " ".join(
-            filter(
-                None,
-                [port.device, port.description, port.manufacturer, port.hwid],
+        if not is_usb_serial_candidate(port):
+            logger.info(
+                "Ignoring non-USB serial port %s (%s)",
+                port.device,
+                port.description,
             )
-        ).lower()
-        if any(token in blob for token in keywords):
-            logger.info("Auto-selected serial port %s (%s)", port.device, port.description)
-            return port.device
+            continue
+        blob = _port_blob(port).lower()
+        hwid = (port.hwid or "").upper()
+        strong = any(token in blob for token in _USB_KEYWORDS) or any(
+            vid in hwid for vid in _USB_VID_HINTS
+        )
+        if strong:
+            preferred_matches.append(port.device)
+        else:
+            other_usb.append(port.device)
+    return preferred_matches + other_usb
 
-    # Fallback: first COM/ttyUSB/ttyACM device
-    first = ports[0].device
-    logger.info("Using first serial port %s (%s)", first, ports[0].description)
-    return first
+
+def resolve_serial_port(preferred: str | None = None) -> str | None:
+    """Pick a USB-serial adapter (Arduino / CH340 / CP210x) or an explicit COM port.
+
+    Does **not** fall back to motherboard COM1 — that looked 'connected' but never
+    received button events.
+    """
+    candidates = serial_port_candidates(preferred)
+    if not candidates:
+        return None
+    chosen = candidates[0]
+    logger.info("Auto-selected serial port %s", chosen)
+    return chosen
 
 
 class SerialHubListener:
     """One USB-serial board for all cameras (Arduino D2/D3 … D12/D13 pairs).
 
-    Firmware prints the camera index (1–6) on each button press.
+    Firmware prints LANCEON_BUTTONS_READY on connect, then camera index (1–6)
+    on each button press.
     """
 
     def __init__(
@@ -70,15 +139,20 @@ class SerialHubListener:
         port: str = "auto",
         baudrate: int = 115200,
         cooldown_seconds: float = 3.0,
+        ready_timeout_seconds: float = 8.0,
     ) -> None:
         self.on_trigger = on_trigger
         self.camera_indexes = set(camera_indexes)
         self.port = port
         self.baudrate = baudrate
         self.cooldown_seconds = cooldown_seconds
+        self.ready_timeout_seconds = ready_timeout_seconds
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._last_trigger: dict[int, float] = {}
+        self.ready = False
+        self.active_port: str | None = None
+        self.last_error: str | None = None
 
     def start(self) -> None:
         self._thread = threading.Thread(
@@ -90,6 +164,13 @@ class SerialHubListener:
         self._stop.set()
         if self._thread:
             self._thread.join(timeout=2)
+
+    def status_line(self) -> str:
+        if self.ready and self.active_port:
+            return f"Botoes OK em {self.active_port}"
+        if self.last_error:
+            return f"Botoes com erro: {self.last_error}"
+        return "Botoes: procurando placa USB..."
 
     def _fire(self, camera_index: int) -> None:
         if camera_index not in self.camera_indexes:
@@ -105,7 +186,7 @@ class SerialHubListener:
 
     def _parse_message(self, message: str) -> int | None:
         text = message.strip()
-        if not text or text.upper() == "LANCEON_BUTTONS_READY":
+        if not text or text.upper() == READY_TOKEN:
             return None
         upper = text.upper()
         if upper.startswith("CAM"):
@@ -117,6 +198,24 @@ class SerialHubListener:
         except (ValueError, IndexError):
             return None
 
+    def _wait_ready(self, device) -> bool:
+        deadline = time.time() + self.ready_timeout_seconds
+        while not self._stop.is_set() and time.time() < deadline:
+            raw = device.readline()
+            if not raw:
+                continue
+            message = raw.decode("utf-8", errors="ignore").strip()
+            if not message:
+                continue
+            if message.upper() == READY_TOKEN or READY_TOKEN in message.upper():
+                return True
+            # Firmware already past READY; accept a camera index as live data
+            camera_index = self._parse_message(message)
+            if camera_index is not None:
+                self._fire(camera_index)
+                return True
+        return False
+
     def _run(self) -> None:
         try:
             import serial
@@ -124,37 +223,71 @@ class SerialHubListener:
             raise RuntimeError("pyserial is required for Windows button hub") from exc
 
         while not self._stop.is_set():
-            port = resolve_serial_port(self.port)
-            if not port:
-                logger.warning(
-                    "No serial button board found. Plug in the Arduino (D2–D13 wiring) "
-                    "or set button_hub.port in config. Retrying in 5s..."
+            candidates = serial_port_candidates(self.port)
+            if not candidates:
+                self.ready = False
+                self.active_port = None
+                self.last_error = (
+                    "Nenhuma placa Arduino/CH340/CP210x no USB "
+                    "(COM1 nativo e ignorado). Conecte a placa e aguarde."
                 )
+                logger.error("%s Retrying in 5s...", self.last_error)
                 time.sleep(5)
                 continue
-            try:
-                with serial.Serial(port, self.baudrate, timeout=1) as device:
-                    logger.info(
-                        "Serial button hub on %s @ %s — cameras %s",
-                        port,
-                        self.baudrate,
-                        sorted(self.camera_indexes),
+
+            opened = False
+            for port in candidates:
+                if self._stop.is_set():
+                    break
+                try:
+                    with serial.Serial(port, self.baudrate, timeout=1) as device:
+                        logger.info(
+                            "Opening serial button hub on %s @ %s — waiting for %s",
+                            port,
+                            self.baudrate,
+                            READY_TOKEN,
+                        )
+                        if not self._wait_ready(device):
+                            self.last_error = (
+                                f"{port} abriu mas nao enviou {READY_TOKEN}. "
+                                "Grave o firmware lanceon_buttons.ino."
+                            )
+                            logger.error(self.last_error)
+                            continue
+                        opened = True
+                        self.ready = True
+                        self.active_port = port
+                        self.last_error = None
+                        logger.info(
+                            "Serial button hub READY on %s — cameras %s",
+                            port,
+                            sorted(self.camera_indexes),
+                        )
+                        while not self._stop.is_set():
+                            raw = device.readline()
+                            if not raw:
+                                continue
+                            message = raw.decode("utf-8", errors="ignore").strip()
+                            if not message:
+                                continue
+                            camera_index = self._parse_message(message)
+                            if camera_index is not None:
+                                self._fire(camera_index)
+                except Exception as exc:
+                    self.ready = False
+                    self.active_port = None
+                    self.last_error = f"{port}: {exc}"
+                    logger.exception(
+                        "Serial hub error on %s; trying next / reconnect", port
                     )
-                    while not self._stop.is_set():
-                        raw = device.readline()
-                        if not raw:
-                            continue
-                        message = raw.decode("utf-8", errors="ignore").strip()
-                        if not message:
-                            continue
-                        camera_index = self._parse_message(message)
-                        if camera_index is not None:
-                            self._fire(camera_index)
-            except Exception:
-                logger.exception(
-                    "Serial hub error on %s; reconnecting in 3s", port or "auto"
-                )
-                time.sleep(3)
+            if not opened and not self._stop.is_set():
+                self.ready = False
+                self.active_port = None
+                if not self.last_error:
+                    self.last_error = "Nao foi possivel falar com a placa de botoes"
+                logger.error("%s Retrying in 5s...", self.last_error)
+                time.sleep(5)
+
 
 
 class ButtonListener:

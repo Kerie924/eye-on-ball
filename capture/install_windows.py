@@ -300,60 +300,102 @@ watermark_height_percent: {float(settings.get("watermark_height_percent", 28))}
         log("Button wiring: CAM1=D2/D3 CAM2=D4/D5 CAM3=D6/D7 CAM4=D8/D9 CAM5=D10/D11 CAM6=D12/D13")
 
 
+def _write_bat(path: Path, lines: list[str]) -> None:
+    """Write a Windows .bat with CRLF endings (LF-only files often exit instantly)."""
+    text = "\r\n".join(lines) + "\r\n"
+    path.write_text(text, encoding="utf-8")
+
+
 def write_helper_scripts(python: Path) -> Path:
     start = INSTALL_ROOT / "start-capture.bat"
     stop = INSTALL_ROOT / "stop-capture.bat"
     status = INSTALL_ROOT / "status-capture.bat"
     control = INSTALL_ROOT / "LanceOn.bat"
-    start.write_text(
-        "\n".join(
+    python_exe = Path(python)
+    # Prefer GUI binary so closing the black console does not kill the app.
+    pythonw_exe = python_exe.with_name("pythonw.exe")
+    if not pythonw_exe.is_file():
+        pythonw_exe = python_exe
+
+    _write_bat(
+        start,
+        [
+            "@echo off",
+            "setlocal EnableExtensions",
+            f'cd /d "{INSTALL_DIR}"',
+            f'if not exist "{python_exe}" (',
+            f'  echo [Lance On] Python missing: {python_exe}',
+            f'  echo Re-run LanceOn-Setup.bat',
+            "  exit /b 1",
+            ")",
+            f'"{python_exe}" "{INSTALL_DIR / "run.py"}" --config "{CONFIG_PATH}"',
+            "exit /b %ERRORLEVEL%",
+        ],
+    )
+    _write_bat(
+        stop,
+        [
+            "@echo off",
+            "setlocal EnableExtensions",
+            "echo Stopping Lance On capture...",
+            'taskkill /F /FI "WINDOWTITLE eq LanceOnCapture*" 2>nul',
+            # wmic is removed on many Windows 11 installs — use PowerShell instead
+            "powershell -NoProfile -ExecutionPolicy Bypass -Command "
+            "\"Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | "
+            "Where-Object { $_.CommandLine -and $_.CommandLine -like '*LanceOn*run.py*' } | "
+            "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }\" "
+            "2>nul",
+            f"schtasks /End /TN {TASK_NAME} 2>nul",
+            "echo Done.",
+        ],
+    )
+    _write_bat(
+        status,
+        [
+            "@echo off",
+            "setlocal EnableExtensions",
+            f'if exist "{LOG_DIR / "capture.log"}" (',
+            f'  type "{LOG_DIR / "capture.log"}"',
+            ") else (",
+            "  echo Log not found yet.",
+            ")",
+            "echo.",
+            "pause",
+        ],
+    )
+    # Prefer the portable template (CRLF, preflight, detached pythonw).
+    template = Path(__file__).resolve().parent / "LanceOn.bat"
+    if template.is_file():
+        body = template.read_text(encoding="utf-8", errors="replace")
+        lines = body.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+        while lines and lines[-1] == "":
+            lines.pop()
+        _write_bat(control, lines)
+    else:
+        _write_bat(
+            control,
             [
                 "@echo off",
-                "setlocal",
-                f'cd /d "{INSTALL_DIR}"',
-                f'"{python}" "{INSTALL_DIR / "run.py"}" --config "{CONFIG_PATH}"',
-            ]
+                "setlocal EnableExtensions",
+                "title Lance On",
+                'cd /d "%~dp0"',
+                'set "ROOT=%~dp0"',
+                'if "%ROOT:~-1%"=="\\" set "ROOT=%ROOT:~0,-1%"',
+                'set "CAPTURE=%ROOT%\\capture"',
+                'set "PY=%CAPTURE%\\.venv\\Scripts\\python.exe"',
+                'set "PYW=%CAPTURE%\\.venv\\Scripts\\pythonw.exe"',
+                'set "APP=%CAPTURE%\\control_app.py"',
+                'set "ERRLOG=%ROOT%\\logs\\control-app-error.log"',
+                'if not exist "%ROOT%\\logs" mkdir "%ROOT%\\logs"',
+                f'if not exist "%PY%" (echo Missing {python_exe}& pause& exit /b 1)',
+                'if exist "%PYW%" (set "LAUNCHER=%PYW%") else (set "LAUNCHER=%PY%")',
+                'cd /d "%CAPTURE%"',
+                '"%PY%" -c "import tkinter; import control_app" 1>"%ERRLOG%" 2>&1',
+                "if errorlevel 1 (type \"%ERRLOG%\"& pause& exit /b 1)",
+                'start "Lance On" "%LAUNCHER%" "%APP%"',
+                "exit /b 0",
+            ],
         )
-        + "\n",
-        encoding="utf-8",
-    )
-    stop.write_text(
-        "\n".join(
-            [
-                "@echo off",
-                "echo Stopping Lance On capture...",
-                'taskkill /F /FI "WINDOWTITLE eq LanceOnCapture*" 2>nul',
-                'wmic process where "CommandLine like \'%LanceOn%run.py%\'" call terminate 2>nul',
-                "schtasks /End /TN LanceOnCapture 2>nul",
-                "echo Done.",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    status.write_text(
-        "\n".join(
-            [
-                "@echo off",
-                f'type "{LOG_DIR / "capture.log"}"',
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    # Double-click app to edit IPs / watermark and start/stop capture
-    control.write_text(
-        "\n".join(
-            [
-                "@echo off",
-                "setlocal",
-                f'cd /d "{INSTALL_DIR}"',
-                f'"{python}" "{INSTALL_DIR / "control_app.py"}"',
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
     _create_desktop_shortcut(control)
     log(f"Helper scripts in {INSTALL_ROOT}")
     log(f"Open anytime: {control}")

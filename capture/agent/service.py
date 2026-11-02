@@ -38,6 +38,33 @@ class CaptureService:
         if not self.api.health_check():
             logger.warning("Backend health check failed; continuing anyway")
 
+        from agent.diagnostics import format_report, run_setup_diagnostics
+
+        hub_cameras = [
+            camera.index
+            for camera in self.config.cameras
+            if camera.button.enabled and camera.button.type == "serial_hub"
+        ]
+        check_buttons = bool(
+            hub_cameras and self.config.button_hub and self.config.button_hub.enabled
+        )
+        button_port = self.config.button_hub.port if self.config.button_hub else "auto"
+        button_baud = self.config.button_hub.baudrate if self.config.button_hub else 115200
+
+        logger.info("Running camera / button diagnostics before capture...")
+        diag = run_setup_diagnostics(
+            [(c.index, c.name, c.rtsp_url) for c in self.config.cameras],
+            button_port=button_port,
+            button_baudrate=button_baud,
+            check_buttons=check_buttons,
+        )
+        report = format_report(diag)
+        for line in report.splitlines():
+            if "FALHOU" in line:
+                logger.error(line)
+            else:
+                logger.info(line)
+
         for camera in self.config.cameras:
             self._camera_locks[camera.index] = threading.Lock()
             buffer_dir = self.config.data_dir / f"camera-{camera.index}" / "buffer"
@@ -59,11 +86,6 @@ class CaptureService:
                 listener.start()
                 self.listeners.append(listener)
 
-        hub_cameras = [
-            camera.index
-            for camera in self.config.cameras
-            if camera.button.enabled and camera.button.type == "serial_hub"
-        ]
         if hub_cameras and self.config.button_hub and self.config.button_hub.enabled:
             self.serial_hub = SerialHubListener(
                 on_trigger=self.handle_trigger,
@@ -83,6 +105,15 @@ class CaptureService:
                 "Cameras %s use serial_hub but button_hub is missing/disabled",
                 hub_cameras,
             )
+
+        failed = [item for item in diag if not item.ok]
+        if failed:
+            logger.error(
+                "Capture started WITH ERRORS (%s). Fix cameras/buttons, then restart.",
+                len(failed),
+            )
+        else:
+            logger.info("Diagnostics OK — waiting for button presses / app PRONTO.")
 
         if self.config.court_button and self.config.court_button.enabled:
             court_camera = CameraConfig(

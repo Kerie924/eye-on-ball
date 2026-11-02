@@ -28,10 +28,16 @@ class BufferRecorder:
         self.process: subprocess.Popen | None = None
         self._stop = threading.Event()
         self._cleanup_thread: threading.Thread | None = None
+        self._watch_thread: threading.Thread | None = None
         self._ffmpeg_lock = threading.Lock()
+        self._stderr_path = self.buffer_dir / "ffmpeg.stderr.log"
+        self._stderr_handle = None
+        self.last_error: str | None = None
+        self.healthy = False
 
     def start(self) -> None:
         self.buffer_dir.mkdir(parents=True, exist_ok=True)
+        self._stderr_path = self.buffer_dir / "ffmpeg.stderr.log"
         self._stop.clear()
         self._start_ffmpeg()
         if self._cleanup_thread is None or not self._cleanup_thread.is_alive():
@@ -41,6 +47,13 @@ class BufferRecorder:
                 name=f"cleanup-cam{self.camera.index}",
             )
             self._cleanup_thread.start()
+        if self._watch_thread is None or not self._watch_thread.is_alive():
+            self._watch_thread = threading.Thread(
+                target=self._watch_loop,
+                daemon=True,
+                name=f"watch-cam{self.camera.index}",
+            )
+            self._watch_thread.start()
 
     def _ffmpeg_command(self, pattern: str) -> list[str]:
         if self.camera.rtsp_url.startswith("test://"):
@@ -95,6 +108,17 @@ class BufferRecorder:
             pattern,
         ]
 
+    def _read_stderr_tail(self, max_chars: int = 500) -> str:
+        try:
+            if not self._stderr_path.is_file():
+                return ""
+            text = self._stderr_path.read_text(encoding="utf-8", errors="ignore").strip()
+            if len(text) > max_chars:
+                return text[-max_chars:]
+            return text
+        except OSError:
+            return ""
+
     def _start_ffmpeg(self) -> None:
         pattern = str(self.buffer_dir / "segment_%05d.mp4")
         command = self._ffmpeg_command(pattern)
@@ -103,38 +127,134 @@ class BufferRecorder:
             self.camera.index,
             self.camera.name,
         )
+        self.healthy = False
+        if self._stderr_handle is not None:
+            try:
+                self._stderr_handle.close()
+            except OSError:
+                pass
+            self._stderr_handle = None
+        try:
+            self._stderr_handle = self._stderr_path.open(
+                "w", encoding="utf-8", errors="replace"
+            )
+            stderr_target = self._stderr_handle
+        except OSError:
+            stderr_target = subprocess.DEVNULL
         # stdin=PIPE so we can send "q" to flush/close the active segment cleanly
         self.process = subprocess.Popen(
             command,
             stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stderr=stderr_target,
         )
+
+    def status_line(self) -> str:
+        if self.healthy:
+            return f"Camera {self.camera.index}: gravando OK"
+        if self.last_error:
+            return f"Camera {self.camera.index}: FALHOU — {self.last_error}"
+        return f"Camera {self.camera.index}: iniciando..."
+
+    def _watch_loop(self) -> None:
+        """Detect RTSP/ffmpeg failures instead of silently 'waiting for triggers'."""
+        while not self._stop.is_set():
+            time.sleep(2.0)
+            with self._ffmpeg_lock:
+                proc = self.process
+                if proc is None:
+                    self.healthy = False
+                    continue
+                code = proc.poll()
+                segments = [
+                    p
+                    for p in self.buffer_dir.glob("segment_*.mp4")
+                    if p.is_file() and p.stat().st_size > 0
+                ]
+                if code is None and segments:
+                    if not self.healthy:
+                        logger.info(
+                            "Camera %s buffer healthy (%s segment(s))",
+                            self.camera.index,
+                            len(segments),
+                        )
+                    self.healthy = True
+                    self.last_error = None
+                    continue
+                if code is None:
+                    # Still starting — give RTSP a few more cycles
+                    age_ok = False
+                    try:
+                        # process running but no segments yet
+                        age_ok = True
+                    except Exception:
+                        pass
+                    if age_ok and not segments:
+                        self.healthy = False
+                        self.last_error = (
+                            "sem segmentos ainda — confira IP/usuario/senha RTSP da camera"
+                        )
+                    continue
+
+                # ffmpeg exited
+                self.healthy = False
+                tail = self._read_stderr_tail()
+                self.last_error = tail.splitlines()[-1] if tail else f"ffmpeg saiu com codigo {code}"
+                logger.error(
+                    "Camera %s buffer stopped (ffmpeg exit %s). %s",
+                    self.camera.index,
+                    code,
+                    self.last_error,
+                )
+                if self._stop.is_set():
+                    break
+                time.sleep(3.0)
+                if self._stop.is_set():
+                    break
+                try:
+                    logger.info("Restarting buffer for camera %s...", self.camera.index)
+                    self._start_ffmpeg()
+                except Exception:
+                    logger.exception(
+                        "Failed to restart buffer for camera %s", self.camera.index
+                    )
+
+    def _close_stderr(self) -> None:
+        if self._stderr_handle is None:
+            return
+        try:
+            self._stderr_handle.close()
+        except OSError:
+            pass
+        self._stderr_handle = None
 
     def _quit_ffmpeg(self) -> None:
         """Ask ffmpeg to exit so the open segment file is closed and readable."""
         proc = self.process
         self.process = None
-        if proc is None:
-            return
-        if proc.poll() is not None:
-            return
         try:
-            if proc.stdin is not None:
-                proc.stdin.write(b"q")
-                proc.stdin.flush()
-            proc.wait(timeout=8)
-            return
-        except Exception:
-            logger.debug("ffmpeg quit via stdin failed; terminating", exc_info=True)
-        try:
-            proc.terminate()
-            proc.wait(timeout=4)
-        except Exception:
+            if proc is None:
+                return
+            if proc.poll() is not None:
+                return
             try:
-                proc.kill()
+                if proc.stdin is not None:
+                    proc.stdin.write(b"q")
+                    proc.stdin.flush()
+                proc.wait(timeout=8)
+                return
             except Exception:
-                pass
+                logger.debug("ffmpeg quit via stdin failed; terminating", exc_info=True)
+            try:
+                proc.terminate()
+                proc.wait(timeout=4)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+        finally:
+            self._close_stderr()
 
     def _cleanup_loop(self) -> None:
         while not self._stop.is_set():
@@ -170,6 +290,10 @@ class BufferRecorder:
         if self._cleanup_thread:
             self._cleanup_thread.join(timeout=2)
             self._cleanup_thread = None
+        if self._watch_thread:
+            self._watch_thread.join(timeout=2)
+            self._watch_thread = None
+        self.healthy = False
 
     def snapshot_segments(self, dest_dir: Path) -> list[Path]:
         """Flush the live segment (ends at button press), copy buffer, resume recording.

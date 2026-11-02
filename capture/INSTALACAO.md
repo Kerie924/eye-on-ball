@@ -62,12 +62,30 @@ Abra **`C:\LanceOn\LanceOn.bat`** (ou o atalho na Area de Trabalho) para:
 
 - Ver se o gravador esta rodando
 - **Iniciar / Parar**
+- **Testar conexoes** (cameras RTSP + placa Arduino USB) antes de usar na quadra
 - Alterar **IPs das cameras**, usuario/senha
 - Trocar a **logo / marca d'agua**
 - Ajustar o **tamanho da logo** no video (`watermark_height_percent`, 5–80%; padrao 28)
 - Clicar **Salvar e reiniciar gravador**
 
+Fluxo recomendado no PC da quadra:
+
+1. Preencha IPs / senha das cameras.
+2. Conecte o Arduino com o firmware `lanceon_buttons.ino`.
+3. Clique **Testar conexoes** — deve mostrar `[OK]` em cada camera e nos botoes.
+4. Se aparecer `[FALHOU]`, corrija IP/senha/USB e teste de novo (COM1 nativo e ignorado de proposito).
+5. Clique **Salvar e reiniciar gravador**.
+6. So entao use os botoes fisicos / app PRONTO.
+
+O log `C:\LanceOn\logs\capture.log` tambem imprime um bloco `DIAGNOSTICO LANCE ON` na subida.
+
 Nao e preciso editar codigo. No Ubuntu, o mesmo valor fica em `/etc/lance-on/config.yaml`.
+
+### Se `LanceOn.bat` abre o CMD e fecha na hora
+
+1. Na pasta `capture` do USB, rode **`repair-lanceon-launcher.bat`** (como administrador se pedir).
+2. Ou rode de novo **`LanceOn-Setup.bat`**.
+3. Se ainda falhar, abra `C:\LanceOn\logs\control-app-error.log` e confira a mensagem (muito comum: Python sem tcl/tk — reinstale o Python de python.org).
 
 ### Botoes no Windows (pares fixos — nao reconfigurar)
 
