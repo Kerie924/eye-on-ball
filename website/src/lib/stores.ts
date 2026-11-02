@@ -14,12 +14,9 @@ export function deviceKind(): DeviceKind {
   return 'other'
 }
 
-/** Opens the matching store. Android uses the Play Store app when available. */
+/** Store URL for the given device. Android always uses the Play Store HTTPS link. */
 export function storeHref(kind: DeviceKind = deviceKind()) {
   if (kind === 'ios' && APP_STORE_URL) return APP_STORE_URL
-  if (kind === 'android') {
-    return `market://details?id=com.lanceon.app`
-  }
   return PLAY_STORE_URL
 }
 
@@ -31,13 +28,6 @@ export function openAppDownload() {
       return
     }
     window.location.href = '/baixar'
-    return
-  }
-  if (kind === 'android') {
-    window.location.href = storeHref('android')
-    window.setTimeout(() => {
-      window.location.href = PLAY_STORE_URL
-    }, 800)
     return
   }
   window.open(PLAY_STORE_URL, '_blank', 'noopener,noreferrer')

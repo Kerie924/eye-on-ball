@@ -1,6 +1,6 @@
 import { Smartphone } from 'lucide-react'
 
-import { APP_STORE_URL, PLAY_STORE_URL, storeHref } from '../lib/stores'
+import { APP_STORE_URL, PLAY_STORE_URL } from '../lib/stores'
 import appIcon from '../assets/brand/icon.png'
 
 function AppleBadge() {
@@ -43,13 +43,9 @@ export function DownloadApp({ compact = false }: { compact?: boolean }) {
 
       <div className="flex flex-wrap gap-3">
         <a
-          href={storeHref('android')}
-          onClick={(e) => {
-            if (!/Android/i.test(navigator.userAgent)) {
-              e.preventDefault()
-              window.open(PLAY_STORE_URL, '_blank', 'noopener,noreferrer')
-            }
-          }}
+          href={PLAY_STORE_URL}
+          target="_blank"
+          rel="noreferrer"
           className="store-btn"
         >
           <PlayBadge />
