@@ -32,6 +32,19 @@ class CameraConfig:
 
 
 @dataclass
+class ButtonHubConfig:
+    """Shared USB-serial button board (Windows Arduino D2–D13 pairs)."""
+
+    type: str = "serial"
+    port: str = "auto"
+    baudrate: int = 115200
+
+    @property
+    def enabled(self) -> bool:
+        return self.type not in {"", "none", "disabled"}
+
+
+@dataclass
 class AgentConfig:
     api_url: str
     device_key: str
@@ -43,7 +56,10 @@ class AgentConfig:
     data_dir: Path
     cameras: list[CameraConfig]
     court_button: ButtonConfig | None = None
+    button_hub: ButtonHubConfig | None = None
     watermark_path: Path | None = None
+    # Logo height as % of video frame height (configurable without code changes)
+    watermark_height_percent: float = 28.0
     queue_max_hours: int = 48
     queue_max_mb: int = 4096
     upload_retry_seconds: int = 20
@@ -105,6 +121,20 @@ def load_config(path: str | Path) -> AgentConfig:
     if court_button and not court_button.enabled:
         court_button = None
 
+    button_hub: ButtonHubConfig | None = None
+    hub_raw = raw.get("button_hub")
+    if isinstance(hub_raw, dict):
+        button_hub = ButtonHubConfig(
+            type=str(hub_raw.get("type", "serial")),
+            port=str(hub_raw.get("port", "auto")),
+            baudrate=int(hub_raw.get("baudrate", 115200)),
+        )
+        if not button_hub.enabled:
+            button_hub = None
+    elif any(cam.button.type == "serial_hub" for cam in cameras):
+        # Cameras declare serial_hub but no hub block — use auto COM port
+        button_hub = ButtonHubConfig()
+
     config_dir = Path(path).resolve().parent
     watermark_raw = raw.get("watermark_path", "assets/video-watermark.jpeg")
     watermark_path = Path(watermark_raw)
@@ -118,6 +148,14 @@ def load_config(path: str | Path) -> AgentConfig:
         ]
         watermark_path = next((p for p in candidates if p.exists()), candidates[0])
 
+    try:
+        watermark_height_percent = float(
+            raw.get("watermark_height_percent", raw.get("watermark_scale_percent", 28))
+        )
+    except (TypeError, ValueError):
+        watermark_height_percent = 28.0
+    watermark_height_percent = max(5.0, min(80.0, watermark_height_percent))
+
     return AgentConfig(
         api_url=raw["api_url"].rstrip("/"),
         device_key=raw["device_key"],
@@ -129,7 +167,9 @@ def load_config(path: str | Path) -> AgentConfig:
         data_dir=Path(raw.get("data_dir", str(default_data_dir()))),
         cameras=cameras,
         court_button=court_button,
+        button_hub=button_hub,
         watermark_path=watermark_path,
+        watermark_height_percent=watermark_height_percent,
         queue_max_hours=int(raw.get("queue_max_hours", 48)),
         queue_max_mb=int(raw.get("queue_max_mb", 4096)),
         upload_retry_seconds=int(raw.get("upload_retry_seconds", 20)),

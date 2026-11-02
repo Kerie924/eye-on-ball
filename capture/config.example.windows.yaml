@@ -15,22 +15,30 @@ queue_max_mb: 4096
 upload_retry_seconds: 20
 
 watermark_path: assets/video-watermark.jpeg
+# Logo height as % of video frame (5–80). Change in LanceOn.bat Control app — no code update needed.
+watermark_height_percent: 28
 
-# Windows uses keyboard / USB-HID buttons (not Raspberry Pi GPIO).
-# Default: F1 = camera 1, F2 = camera 2. Many USB arcade buttons send these keys.
+# Shared USB-serial button board (Arduino Uno/Nano). Flash firmware/lanceon_buttons.
+# Fixed pairs — copy software as-is, wiring never changes:
+#   CAM1=D2+D3  CAM2=D4+D5  CAM3=D6+D7  CAM4=D8+D9  CAM5=D10+D11  CAM6=D12+D13
+button_hub:
+  type: serial
+  port: auto
+  baudrate: 115200
+
 cameras:
   - index: 1
     name: Camera 1
     rtsp_url: rtsp://admin:password@192.168.1.101:554/cam/realmonitor?channel=1&subtype=0
     button:
-      type: keyboard
-      key: f1
+      type: serial_hub
+      trigger_on: "1"
 
   - index: 2
     name: Camera 2
     rtsp_url: rtsp://admin:password@192.168.1.102:554/cam/realmonitor?channel=1&subtype=0
     button:
-      type: keyboard
-      key: f2
+      type: serial_hub
+      trigger_on: "2"
 
 data_dir: C:/LanceOn/data

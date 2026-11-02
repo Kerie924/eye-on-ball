@@ -64,21 +64,28 @@ Abra **`C:\LanceOn\LanceOn.bat`** (ou o atalho na Area de Trabalho) para:
 - **Iniciar / Parar**
 - Alterar **IPs das cameras**, usuario/senha
 - Trocar a **logo / marca d'agua**
+- Ajustar o **tamanho da logo** no video (`watermark_height_percent`, 5–80%; padrao 28)
 - Clicar **Salvar e reiniciar gravador**
 
-Nao e preciso editar YAML na mao.
+Nao e preciso editar codigo. No Ubuntu, o mesmo valor fica em `/etc/lance-on/config.yaml`.
 
-### Botoes no Windows
+### Botoes no Windows (pares fixos — nao reconfigurar)
 
-Windows **nao** usa GPIO do Raspberry Pi. Use:
+Use uma placa **Arduino Uno/Nano** (USB) com o firmware em  
+`capture/firmware/lanceon_buttons/lanceon_buttons.ino`.
 
-| Camera | Tecla padrao |
-|--------|----------------|
-| Camera 1 | **F1** |
-| Camera 2 | **F2** |
-| Camera 3 | **F3** |
+Ligue cada botao NO entre o par de pinos (sinal + GND). **Nunca mude estes pares** — copie o software e ja fica certo:
 
-Botoes USB tipo arcade/HID que enviam F1/F2 funcionam.  
+| Camera | Sinal | GND |
+|--------|-------|-----|
+| CAM 1 | **D2** | **D3** |
+| CAM 2 | **D4** | **D5** |
+| CAM 3 | **D6** | **D7** |
+| CAM 4 | **D8** | **D9** |
+| CAM 5 | **D10** | **D11** |
+| CAM 6 | **D12** | **D13** |
+
+O agente detecta a porta COM automaticamente (`button_hub.port: auto`).  
 App **PRONTO** / admin **Gravar** tambem funcionam (internet).
 
 ### Comandos uteis (Windows)

@@ -44,7 +44,9 @@ class SetupApp(tk.Tk):
 
     def _button_label(self) -> str:
         if IS_WINDOWS:
-            return "Botoes fisicos USB/teclado (F1=cam1, F2=cam2, ...)"
+            return (
+                "Botoes Arduino USB (fixo: CAM1=D2/D3 … CAM6=D12/D13)"
+            )
         return "Um botao fisico por camera (GPIO17, GPIO22, ... no Mini PC)"
 
     def _build(self) -> None:

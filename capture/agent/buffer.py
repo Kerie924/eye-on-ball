@@ -250,6 +250,7 @@ def build_clip(
     *,
     clip_seconds: int = 30,
     watermark_path: Path | None = None,
+    watermark_height_percent: float = 28.0,
 ) -> None:
     """Concat buffer segments, keep exactly clip_seconds from the end, burn bottom watermark."""
     if not segment_paths:
@@ -320,6 +321,7 @@ def build_clip(
             output_path,
             clip_seconds=clip_seconds,
             watermark_path=watermark_path,
+            watermark_height_percent=watermark_height_percent,
         )
     finally:
         concat_path.unlink(missing_ok=True)
@@ -352,13 +354,19 @@ def _render_final_clip(
     *,
     clip_seconds: int,
     watermark_path: Path | None,
+    watermark_height_percent: float = 28.0,
 ) -> None:
     """Keep the last N seconds, ending at the latest captured frame (button press)."""
     duration = _media_duration(source)
     start = max(0.0, duration - clip_seconds) if duration > 0 else None
     if watermark_path and watermark_path.exists():
         _render_final_clip_watermarked(
-            source, output_path, clip_seconds, watermark_path, start=start
+            source,
+            output_path,
+            clip_seconds,
+            watermark_path,
+            start=start,
+            height_percent=watermark_height_percent,
         )
         return
 
@@ -405,10 +413,13 @@ def _render_final_clip_watermarked(
     clip_seconds: int,
     watermark_path: Path,
     start: float | None = None,
+    height_percent: float = 28.0,
 ) -> None:
-    """Bottom-centered watermark (~28% of frame height)."""
-    scale_h = "main_h*0.28"
-    fallback_h = "300"
+    """Bottom-centered watermark. height_percent = logo height vs frame height (5–80)."""
+    pct = max(5.0, min(80.0, float(height_percent)))
+    scale_h = f"main_h*{pct / 100.0:.4f}"
+    # Fallback fixed px when scale2ref fails (~pct of 1080p)
+    fallback_h = str(max(80, int(1080 * pct / 100.0)))
     if start is not None:
         trim = f"trim=start={start:.3f}:duration={clip_seconds},setpts=PTS-STARTPTS"
         seek_in: list[str] = []

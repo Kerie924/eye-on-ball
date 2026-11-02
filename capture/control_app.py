@@ -81,6 +81,7 @@ class ControlApp(tk.Tk):
         self.camera_password = tk.StringVar()
         self.camera_count = tk.IntVar(value=2)
         self.watermark_path = tk.StringVar(value="")
+        self.watermark_height_percent = tk.DoubleVar(value=28.0)
         self.status_text = tk.StringVar(value="Verificando...")
         self.camera_ips = [tk.StringVar() for _ in range(MAX_CAMERAS)]
 
@@ -102,6 +103,13 @@ class ControlApp(tk.Tk):
             fg=MUTED,
             bg=BG,
             font=("Segoe UI", 11),
+        ).pack(anchor="w", pady=(0, 4))
+        tk.Label(
+            outer,
+            text="Botoes fixos Arduino: CAM1=D2/D3 … CAM6=D12/D13 (USB serial auto).",
+            fg=MUTED,
+            bg=BG,
+            font=("Segoe UI", 10),
         ).pack(anchor="w", pady=(0, 12))
 
         status = tk.Frame(outer, bg=CARD, padx=16, pady=12)
@@ -166,6 +174,31 @@ class ControlApp(tk.Tk):
         tk.Button(pick, text="Escolher...", command=self._pick_watermark).pack(
             side=tk.LEFT, padx=(8, 0)
         )
+
+        size_row = tk.Frame(form, bg=CARD)
+        size_row.pack(fill=tk.X, pady=8)
+        tk.Label(
+            size_row,
+            text="Tamanho da logo no video (% da altura do quadro, 5–80)",
+            fg=FG,
+            bg=CARD,
+        ).pack(anchor="w")
+        size_controls = tk.Frame(size_row, bg=CARD)
+        size_controls.pack(anchor="w", pady=(4, 0))
+        tk.Spinbox(
+            size_controls,
+            from_=5,
+            to=80,
+            increment=1,
+            textvariable=self.watermark_height_percent,
+            width=8,
+        ).pack(side=tk.LEFT)
+        tk.Label(
+            size_controls,
+            text="  (padrao 28 — maior = logo maior)",
+            fg=MUTED,
+            bg=CARD,
+        ).pack(side=tk.LEFT)
 
         tk.Button(
             outer,
@@ -237,6 +270,11 @@ class ControlApp(tk.Tk):
         wm = raw.get("watermark_path")
         if wm:
             self.watermark_path.set(str(wm))
+        try:
+            pct = float(raw.get("watermark_height_percent", 28))
+        except (TypeError, ValueError):
+            pct = 28.0
+        self.watermark_height_percent.set(max(5.0, min(80.0, pct)))
         self._refresh_cameras()
         self._append(f"Config carregada: {self.config_path}")
 
@@ -335,6 +373,7 @@ class ControlApp(tk.Tk):
             "camera_password": self.camera_password.get(),
             "cameras": cameras,
             "watermark_path": self.watermark_path.get().strip() or None,
+            "watermark_height_percent": float(self.watermark_height_percent.get()),
             "use_gpio": True,
         }
 
@@ -358,27 +397,30 @@ class ControlApp(tk.Tk):
         user = settings["camera_user"]
         password = settings["camera_password"]
         use_buttons = bool(settings.get("use_gpio", True))
+        try:
+            from windows_pins import button_hub_yaml, camera_button_yaml
+        except ImportError:
+            import sys as _sys
+
+            _sys.path.insert(0, str(self.capture_dir))
+            from windows_pins import button_hub_yaml, camera_button_yaml
+
         camera_lines = []
         for item in settings["cameras"]:
             index = int(item["index"])
-            key = f"f{index}"
-            button = (
-                f"    button:\n      type: keyboard\n      key: {key}"
-                if use_buttons
-                else "    button:\n      type: none"
-            )
             camera_lines.append(
                 "\n".join(
                     [
                         f"  - index: {index}",
                         f"    name: Camera {index}",
                         f"    rtsp_url: {_yaml_quote(_rtsp_url(user, password, item['ip']))}",
-                        button,
+                        camera_button_yaml(index, enabled=use_buttons),
                     ]
                 )
             )
 
         content = f"""# Updated by Lance On Control
+# Fixed button pairs: CAM1=D2+D3 … CAM6=D12+D13 (Arduino USB)
 api_url: {_yaml_quote(settings['api_url'])}
 device_key: {_yaml_quote(settings['device_key'])}
 
@@ -391,14 +433,25 @@ queue_max_hours: 48
 queue_max_mb: 4096
 upload_retry_seconds: 20
 
+{button_hub_yaml(port="auto")}
+
 cameras:
 {chr(10).join(camera_lines)}
 
 data_dir: {_yaml_quote(str((self.install_root / 'data')).replace(chr(92), '/'))}
 watermark_path: {_yaml_quote(str(self.watermark_dest).replace(chr(92), '/'))}
+watermark_height_percent: {max(5.0, min(80.0, float(settings.get('watermark_height_percent', 28))))}
 """
         self.config_path.write_text(content, encoding="utf-8")
         self._append(f"Config salva: {self.config_path}")
+        self._append(
+            f"Tamanho da logo: {max(5.0, min(80.0, float(settings.get('watermark_height_percent', 28))))}%"
+        )
+        if use_buttons:
+            self._append(
+                "Botoes fixos: CAM1=D2/D3 CAM2=D4/D5 CAM3=D6/D7 "
+                "CAM4=D8/D9 CAM5=D10/D11 CAM6=D12/D13"
+            )
 
     def _save_and_restart(self) -> None:
         settings = self._collect_settings()

@@ -10,6 +10,153 @@ from agent.paths import mock_trigger_path
 logger = logging.getLogger(__name__)
 
 
+def resolve_serial_port(preferred: str | None = None) -> str | None:
+    """Pick a USB-serial adapter (Arduino / CH340 / CP210x) or an explicit COM port."""
+    preferred = (preferred or "").strip()
+    if preferred and preferred.lower() not in {"auto", "default", ""}:
+        return preferred
+
+    try:
+        from serial.tools import list_ports
+    except ImportError:
+        logger.warning("pyserial not installed; cannot auto-detect COM port")
+        return None
+
+    ports = list(list_ports.comports())
+    if not ports:
+        return None
+
+    keywords = (
+        "arduino",
+        "ch340",
+        "ch341",
+        "cp210",
+        "usb serial",
+        "usb-serial",
+        "usb2.0-serial",
+        "uart",
+        "esp",
+        "silicon labs",
+        "wch",
+    )
+    for port in ports:
+        blob = " ".join(
+            filter(
+                None,
+                [port.device, port.description, port.manufacturer, port.hwid],
+            )
+        ).lower()
+        if any(token in blob for token in keywords):
+            logger.info("Auto-selected serial port %s (%s)", port.device, port.description)
+            return port.device
+
+    # Fallback: first COM/ttyUSB/ttyACM device
+    first = ports[0].device
+    logger.info("Using first serial port %s (%s)", first, ports[0].description)
+    return first
+
+
+class SerialHubListener:
+    """One USB-serial board for all cameras (Arduino D2/D3 … D12/D13 pairs).
+
+    Firmware prints the camera index (1–6) on each button press.
+    """
+
+    def __init__(
+        self,
+        on_trigger: Callable[[int], None],
+        camera_indexes: list[int],
+        *,
+        port: str = "auto",
+        baudrate: int = 115200,
+        cooldown_seconds: float = 3.0,
+    ) -> None:
+        self.on_trigger = on_trigger
+        self.camera_indexes = set(camera_indexes)
+        self.port = port
+        self.baudrate = baudrate
+        self.cooldown_seconds = cooldown_seconds
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._last_trigger: dict[int, float] = {}
+
+    def start(self) -> None:
+        self._thread = threading.Thread(
+            target=self._run, daemon=True, name="button-serial-hub"
+        )
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread:
+            self._thread.join(timeout=2)
+
+    def _fire(self, camera_index: int) -> None:
+        if camera_index not in self.camera_indexes:
+            logger.warning("Serial hub got camera %s but it is not configured", camera_index)
+            return
+        now = time.time()
+        last = self._last_trigger.get(camera_index, 0.0)
+        if now - last < self.cooldown_seconds:
+            return
+        self._last_trigger[camera_index] = now
+        logger.info("Serial hub triggered camera %s", camera_index)
+        self.on_trigger(camera_index)
+
+    def _parse_message(self, message: str) -> int | None:
+        text = message.strip()
+        if not text or text.upper() == "LANCEON_BUTTONS_READY":
+            return None
+        upper = text.upper()
+        if upper.startswith("CAM"):
+            text = text[3:].lstrip(" =:_-")
+        if upper.startswith("CAMERA"):
+            text = text[6:].lstrip(" =:_-")
+        try:
+            return int(text.split()[0])
+        except (ValueError, IndexError):
+            return None
+
+    def _run(self) -> None:
+        try:
+            import serial
+        except ImportError as exc:
+            raise RuntimeError("pyserial is required for Windows button hub") from exc
+
+        while not self._stop.is_set():
+            port = resolve_serial_port(self.port)
+            if not port:
+                logger.warning(
+                    "No serial button board found. Plug in the Arduino (D2–D13 wiring) "
+                    "or set button_hub.port in config. Retrying in 5s..."
+                )
+                time.sleep(5)
+                continue
+            try:
+                with serial.Serial(port, self.baudrate, timeout=1) as device:
+                    logger.info(
+                        "Serial button hub on %s @ %s — cameras %s",
+                        port,
+                        self.baudrate,
+                        sorted(self.camera_indexes),
+                    )
+                    while not self._stop.is_set():
+                        raw = device.readline()
+                        if not raw:
+                            continue
+                        message = raw.decode("utf-8", errors="ignore").strip()
+                        if not message:
+                            continue
+                        camera_index = self._parse_message(message)
+                        if camera_index is not None:
+                            self._fire(camera_index)
+            except Exception:
+                logger.exception(
+                    "Serial hub error on %s; reconnecting in 3s", port or "auto"
+                )
+                time.sleep(3)
+
+
 class ButtonListener:
     def __init__(
         self,

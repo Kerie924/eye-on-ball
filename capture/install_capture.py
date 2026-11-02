@@ -152,6 +152,8 @@ cameras:
 
 data_dir: {yaml_quote(str(DATA_DIR))}
 watermark_path: {yaml_quote(str(watermark))}
+# Logo size on video: percent of frame height (5–80). Edit config.yaml anytime.
+watermark_height_percent: {float(settings.get("watermark_height_percent", 28))}
 """
     CONFIG_PATH.write_text(content, encoding="utf-8")
     os.chmod(CONFIG_PATH, 0o600)

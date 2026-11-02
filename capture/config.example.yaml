@@ -17,6 +17,8 @@ upload_retry_seconds: 20
 
 # Bottom ad banner burned into every uploaded clip
 watermark_path: assets/video-watermark.jpeg
+# Logo height as % of video frame (5–80). Edit this value anytime — no code change needed.
+watermark_height_percent: 28
 
 # Add 1–6 cameras. Each camera can have its own GPIO button (idle HIGH, press = LOW to GND).
 # Default pins: cam1 GPIO17/pin11, cam2 GPIO22/pin15 (wires on pins 13+15), etc.

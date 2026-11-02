@@ -9,7 +9,7 @@ from pathlib import Path
 
 from agent.api_client import ApiClient
 from agent.buffer import BufferRecorder, build_clip
-from agent.buttons import ButtonListener
+from agent.buttons import ButtonListener, SerialHubListener
 from agent.config import AgentConfig, CameraConfig, load_config
 from agent.upload_queue import UploadQueue
 
@@ -27,6 +27,7 @@ class CaptureService:
         )
         self.recorders: dict[int, BufferRecorder] = {}
         self.listeners: list[ButtonListener] = []
+        self.serial_hub: SerialHubListener | None = None
         self._stop = threading.Event()
         self._upload_ready = threading.Event()
         self._heartbeat_thread: threading.Thread | None = None
@@ -49,7 +50,7 @@ class CaptureService:
             recorder.start()
             self.recorders[camera.index] = recorder
 
-            if camera.button.enabled:
+            if camera.button.enabled and camera.button.type != "serial_hub":
                 listener = ButtonListener(
                     camera=camera,
                     on_trigger=self.handle_trigger,
@@ -57,6 +58,31 @@ class CaptureService:
                 )
                 listener.start()
                 self.listeners.append(listener)
+
+        hub_cameras = [
+            camera.index
+            for camera in self.config.cameras
+            if camera.button.enabled and camera.button.type == "serial_hub"
+        ]
+        if hub_cameras and self.config.button_hub and self.config.button_hub.enabled:
+            self.serial_hub = SerialHubListener(
+                on_trigger=self.handle_trigger,
+                camera_indexes=hub_cameras,
+                port=self.config.button_hub.port,
+                baudrate=self.config.button_hub.baudrate,
+                cooldown_seconds=float(self.config.button_cooldown_seconds),
+            )
+            self.serial_hub.start()
+            logger.info(
+                "Windows serial button hub enabled for cameras %s (port=%s)",
+                hub_cameras,
+                self.config.button_hub.port,
+            )
+        elif hub_cameras:
+            logger.warning(
+                "Cameras %s use serial_hub but button_hub is missing/disabled",
+                hub_cameras,
+            )
 
         if self.config.court_button and self.config.court_button.enabled:
             court_camera = CameraConfig(
@@ -169,6 +195,7 @@ class CaptureService:
                 clip_path,
                 clip_seconds=self.config.clip_seconds,
                 watermark_path=self.config.watermark_path,
+                watermark_height_percent=self.config.watermark_height_percent,
             )
             triggered_at = datetime.now(timezone.utc)
             self.queue.enqueue(camera_index, clip_path, triggered_at)
@@ -288,6 +315,8 @@ class CaptureService:
         self._stop.set()
         for listener in self.listeners:
             listener.stop()
+        if self.serial_hub:
+            self.serial_hub.stop()
         for recorder in self.recorders.values():
             recorder.stop()
         if self._heartbeat_thread:
