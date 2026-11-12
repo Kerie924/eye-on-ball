@@ -15,8 +15,8 @@ queue_max_mb: 4096
 upload_retry_seconds: 20
 
 watermark_path: assets/video-watermark.jpeg
-# Logo height as % of video frame (5–80). Change in LanceOn.bat Control app — no code update needed.
-watermark_height_percent: 28
+# Logo height as % of video frame (5–40). Change in LanceOn.bat Control app — no code update needed.
+watermark_height_percent: 16
 
 # Shared USB-serial button board (Arduino Uno/Nano). Flash firmware/lanceon_buttons.
 # Fixed pairs — copy software as-is, wiring never changes:

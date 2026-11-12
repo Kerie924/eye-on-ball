@@ -1,4 +1,5 @@
 import logging
+import os
 import shutil
 import signal
 import sys
@@ -8,7 +9,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from agent.api_client import ApiClient
-from agent.buffer import BufferRecorder, build_clip
+from agent.buffer import BufferRecorder, build_clip, estimate_buffer_seconds
+
+
 from agent.buttons import ButtonListener, SerialHubListener
 from agent.config import AgentConfig, CameraConfig, load_config
 from agent.upload_queue import UploadQueue
@@ -45,18 +48,12 @@ class CaptureService:
             for camera in self.config.cameras
             if camera.button.enabled and camera.button.type == "serial_hub"
         ]
-        check_buttons = bool(
-            hub_cameras and self.config.button_hub and self.config.button_hub.enabled
-        )
-        button_port = self.config.button_hub.port if self.config.button_hub else "auto"
-        button_baud = self.config.button_hub.baudrate if self.config.button_hub else 115200
-
-        logger.info("Running camera / button diagnostics before capture...")
+        # Probe cameras only here. Button COM port must stay free for SerialHubListener
+        # (Arduino IDE Serial Monitor / a second open also causes "Access is denied").
+        logger.info("Running camera diagnostics before capture...")
         diag = run_setup_diagnostics(
             [(c.index, c.name, c.rtsp_url) for c in self.config.cameras],
-            button_port=button_port,
-            button_baudrate=button_baud,
-            check_buttons=check_buttons,
+            check_buttons=False,
         )
         report = format_report(diag)
         for line in report.splitlines():
@@ -87,18 +84,40 @@ class CaptureService:
                 self.listeners.append(listener)
 
         if hub_cameras and self.config.button_hub and self.config.button_hub.enabled:
-            self.serial_hub = SerialHubListener(
-                on_trigger=self.handle_trigger,
-                camera_indexes=hub_cameras,
-                port=self.config.button_hub.port,
-                baudrate=self.config.button_hub.baudrate,
-                cooldown_seconds=float(self.config.button_cooldown_seconds),
-            )
+            trigger_map: dict[int, int] = {}
+            for camera in self.config.cameras:
+                if not (camera.button.enabled and camera.button.type == "serial_hub"):
+                    continue
+                raw = str(camera.button.trigger_on or camera.index).strip()
+                try:
+                    button_id = int(raw.split()[0])
+                except (ValueError, IndexError):
+                    button_id = camera.index
+                trigger_map[button_id] = camera.index
+            try:
+                self.serial_hub = SerialHubListener(
+                    on_trigger=self.handle_trigger,
+                    camera_indexes=hub_cameras,
+                    port=self.config.button_hub.port,
+                    baudrate=self.config.button_hub.baudrate,
+                    cooldown_seconds=float(self.config.button_cooldown_seconds),
+                    trigger_map=trigger_map,
+                )
+            except TypeError:
+                # Older buttons.py without trigger_map kwarg
+                self.serial_hub = SerialHubListener(
+                    on_trigger=self.handle_trigger,
+                    camera_indexes=hub_cameras,
+                    port=self.config.button_hub.port,
+                    baudrate=self.config.button_hub.baudrate,
+                    cooldown_seconds=float(self.config.button_cooldown_seconds),
+                )
             self.serial_hub.start()
             logger.info(
-                "Windows serial button hub enabled for cameras %s (port=%s)",
+                "Windows serial button hub enabled for cameras %s (port=%s, map=%s)",
                 hub_cameras,
                 self.config.button_hub.port,
+                trigger_map,
             )
         elif hub_cameras:
             logger.warning(
@@ -195,34 +214,42 @@ class CaptureService:
                 / "snap"
                 / str(int(time.time() * 1000))
             )
-            segments = recorder.snapshot_segments(snap_dir)
-            needed = self.config.segments_for_clip
-            min_segments = max(1, -(-self.config.clip_seconds // self.config.segment_seconds))
-            if len(segments) < min_segments:
+            segments = recorder.snapshot_segments(
+                snap_dir,
+                keep_seconds=float(self.config.clip_seconds) + 15.0,
+            )
+            buffered = estimate_buffer_seconds(
+                segments,
+                fallback_each=float(recorder.segment_seconds),
+            )
+            # Only abort when essentially empty (old bug used broken ffprobe sums ~6s
+            # and blocked real clips that had plenty of segment files).
+            min_seconds = 2.0
+            if not segments or buffered < min_seconds:
                 shutil.rmtree(snap_dir, ignore_errors=True)
                 logger.warning(
-                    "Not enough buffer segments for camera %s (%s/%s). "
+                    "Not enough buffer for camera %s (%.1fs). "
                     "Wait ~%ss after start before triggering.",
                     camera_index,
-                    len(segments),
-                    min_segments,
+                    buffered,
                     self.config.clip_seconds,
                 )
                 return
 
-            clip_segments = segments[-needed:] if len(segments) >= needed else segments
             clips_dir = self.config.data_dir / f"camera-{camera_index}" / "clips"
             clip_path = clips_dir / f"clip_{int(time.time())}_{camera_index}.mp4"
 
             logger.info(
-                "Building %ss clip for camera %s from %s segments (watermark=%s)",
+                "Building %ss clip for camera %s from %s segments (%.1fs buffered, watermark=%s)",
                 self.config.clip_seconds,
                 camera_index,
-                len(clip_segments),
+                len(segments),
+                buffered,
                 bool(self.config.watermark_path and self.config.watermark_path.exists()),
             )
+            # Pass full snapshot; build_clip picks newest segments covering clip_seconds
             build_clip(
-                clip_segments,
+                segments,
                 clip_path,
                 clip_seconds=self.config.clip_seconds,
                 watermark_path=self.config.watermark_path,
@@ -389,26 +416,68 @@ def main(argv: list[str] | None = None) -> int:
     if "--verbose" in argv or "-v" in argv:
         verbose = True
 
-    if is_windows():
-        log_dir = default_log_dir()
-        log_dir.mkdir(parents=True, exist_ok=True)
-        configure_logging(verbose, log_file=log_dir / "capture.log")
-    else:
-        configure_logging(verbose)
-    config = load_config(config_path)
-    service = CaptureService(config)
+    log_dir: Path | None = None
+    try:
+        if is_windows():
+            log_dir = default_log_dir()
+            log_dir.mkdir(parents=True, exist_ok=True)
+            configure_logging(verbose, log_file=log_dir / "capture.log")
+            # Title used by control_app Parar (taskkill WINDOWTITLE eq LanceOnCapture*)
+            try:
+                import ctypes
 
-    def shutdown(_signum, _frame) -> None:
-        logger.info("Shutdown signal received")
-        service.stop()
-        sys.exit(0)
+                ctypes.windll.kernel32.SetConsoleTitleW("LanceOnCapture")
+            except Exception:
+                pass
+        else:
+            configure_logging(verbose)
 
-    signal.signal(signal.SIGINT, shutdown)
-    signal.signal(signal.SIGTERM, shutdown)
+        from agent.process_lock import acquire_pid_lock, release_pid_lock
 
-    service.start()
-    service.wait()
-    return 0
+        pid_path: Path | None = None
+        if log_dir is not None:
+            pid_path = log_dir / "capture.pid"
+            if not acquire_pid_lock(pid_path):
+                return 2
+
+        config = load_config(config_path)
+        service = CaptureService(config)
+
+        def shutdown(_signum, _frame) -> None:
+            logger.info("Shutdown signal received")
+            service.stop()
+            release_pid_lock(pid_path)
+            sys.exit(0)
+
+        signal.signal(signal.SIGINT, shutdown)
+        signal.signal(signal.SIGTERM, shutdown)
+
+        try:
+            service.start()
+            service.wait()
+            return 0
+        finally:
+            release_pid_lock(pid_path)
+    except Exception:
+        import traceback
+
+        text = traceback.format_exc()
+        try:
+            logger.exception("Capture agent crashed on startup")
+        except Exception:
+            print(text, file=sys.stderr)
+        if log_dir is not None:
+            try:
+                crash = log_dir / "capture-crash.log"
+                crash.write_text(text, encoding="utf-8")
+                print(f"Crash details written to {crash}", file=sys.stderr)
+            except OSError:
+                pass
+            try:
+                (log_dir / "capture.pid").unlink(missing_ok=True)
+            except OSError:
+                pass
+        return 1
 
 
 if __name__ == "__main__":

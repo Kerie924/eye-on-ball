@@ -124,11 +124,23 @@ def resolve_serial_port(preferred: str | None = None) -> str | None:
     return chosen
 
 
+# Arduino firmware button id → default pin pair (signal, gnd)
+_ARDUINO_PAIR_PINS: dict[int, tuple[int, int]] = {
+    1: (2, 3),
+    2: (4, 5),
+    3: (6, 7),
+    4: (8, 9),
+    5: (10, 11),
+    6: (12, 13),
+}
+
+
 class SerialHubListener:
     """One USB-serial board for all cameras (Arduino D2/D3 … D12/D13 pairs).
 
-    Firmware prints LANCEON_BUTTONS_READY on connect, then camera index (1–6)
-    on each button press.
+    Firmware prints LANCEON_BUTTONS_READY on connect, then a button id (1–6)
+    on each press. That id is mapped to a camera via trigger_map (from each
+    camera's button.trigger_on), defaulting to id == camera index.
     """
 
     def __init__(
@@ -140,9 +152,23 @@ class SerialHubListener:
         baudrate: int = 115200,
         cooldown_seconds: float = 3.0,
         ready_timeout_seconds: float = 8.0,
+        trigger_map: dict[int, int] | None = None,
     ) -> None:
         self.on_trigger = on_trigger
         self.camera_indexes = set(camera_indexes)
+        # Arduino button id (1–6) → camera index
+        if trigger_map:
+            self.trigger_map = {int(k): int(v) for k, v in trigger_map.items()}
+        else:
+            self.trigger_map = {idx: idx for idx in camera_indexes}
+        # Many 2-cam courts wired the last pin pairs (D10–D13 = buttons 5–6)
+        # instead of D2–D5. Also accept those pairs so recording works without rewiring.
+        cams = sorted(self.camera_indexes)
+        n = len(cams)
+        if 1 <= n <= 6:
+            high_pairs = list(range(7 - n, 7))  # n=2 → [5, 6]
+            for button_id, cam in zip(high_pairs, cams):
+                self.trigger_map.setdefault(button_id, cam)
         self.port = port
         self.baudrate = baudrate
         self.cooldown_seconds = cooldown_seconds
@@ -153,6 +179,11 @@ class SerialHubListener:
         self.ready = False
         self.active_port: str | None = None
         self.last_error: str | None = None
+        self._access_denied_streak = 0
+        logger.info(
+            "Serial hub button map: %s",
+            ", ".join(f"{b}→cam{c}" for b, c in sorted(self.trigger_map.items())),
+        )
 
     def start(self) -> None:
         self._thread = threading.Thread(
@@ -172,16 +203,42 @@ class SerialHubListener:
             return f"Botoes com erro: {self.last_error}"
         return "Botoes: procurando placa USB..."
 
-    def _fire(self, camera_index: int) -> None:
+    def _fire_button_id(self, button_id: int) -> None:
+        """button_id is what the Arduino printed (pin-pair 1–6)."""
+        camera_index = self.trigger_map.get(button_id)
+        if camera_index is None:
+            pins = _ARDUINO_PAIR_PINS.get(button_id)
+            pin_txt = f"D{pins[0]}+D{pins[1]}" if pins else "par desconhecido"
+            mapped = ", ".join(
+                f"botao {bid}→cam {cam}" for bid, cam in sorted(self.trigger_map.items())
+            )
+            logger.warning(
+                "Botao Arduino %s (%s) ignorado. Mapeamento: [%s].",
+                button_id,
+                pin_txt,
+                mapped or "vazio",
+            )
+            return
         if camera_index not in self.camera_indexes:
-            logger.warning("Serial hub got camera %s but it is not configured", camera_index)
+            logger.warning(
+                "Serial hub mapped button %s → camera %s, but that camera is not active",
+                button_id,
+                camera_index,
+            )
             return
         now = time.time()
         last = self._last_trigger.get(camera_index, 0.0)
         if now - last < self.cooldown_seconds:
             return
         self._last_trigger[camera_index] = now
-        logger.info("Serial hub triggered camera %s", camera_index)
+        pins = _ARDUINO_PAIR_PINS.get(button_id)
+        pin_txt = f"D{pins[0]}+D{pins[1]}" if pins else "?"
+        logger.info(
+            "Serial hub button %s (%s) → camera %s",
+            button_id,
+            pin_txt,
+            camera_index,
+        )
         self.on_trigger(camera_index)
 
     def _parse_message(self, message: str) -> int | None:
@@ -209,10 +266,10 @@ class SerialHubListener:
                 continue
             if message.upper() == READY_TOKEN or READY_TOKEN in message.upper():
                 return True
-            # Firmware already past READY; accept a camera index as live data
-            camera_index = self._parse_message(message)
-            if camera_index is not None:
-                self._fire(camera_index)
+            # Firmware already past READY; accept a button id as live data
+            button_id = self._parse_message(message)
+            if button_id is not None:
+                self._fire_button_id(button_id)
                 return True
         return False
 
@@ -270,22 +327,41 @@ class SerialHubListener:
                             message = raw.decode("utf-8", errors="ignore").strip()
                             if not message:
                                 continue
-                            camera_index = self._parse_message(message)
-                            if camera_index is not None:
-                                self._fire(camera_index)
+                            button_id = self._parse_message(message)
+                            if button_id is not None:
+                                self._fire_button_id(button_id)
                 except Exception as exc:
                     self.ready = False
                     self.active_port = None
-                    self.last_error = f"{port}: {exc}"
-                    logger.exception(
-                        "Serial hub error on %s; trying next / reconnect", port
-                    )
+                    low = str(exc).lower()
+                    if "access is denied" in low or "permission" in low:
+                        self._access_denied_streak += 1
+                        self.last_error = (
+                            f"{port}: Access denied — feche o Serial Monitor do "
+                            "Arduino IDE e pare outras copias do Lance On; so um "
+                            "programa pode usar a porta USB. "
+                            "No painel: Parar. Ou CMD: "
+                            r"taskkill /F /IM python.exe /FI \"WINDOWTITLE eq LanceOn*\" "
+                            f"e delete C:\\LanceOn\\logs\\capture.pid"
+                        )
+                        # Avoid flooding the log every 5s
+                        if self._access_denied_streak == 1 or self._access_denied_streak % 12 == 0:
+                            logger.error("%s", self.last_error)
+                    else:
+                        self._access_denied_streak = 0
+                        self.last_error = f"{port}: {exc}"
+                        logger.exception(
+                            "Serial hub error on %s; trying next / reconnect", port
+                        )
+                else:
+                    self._access_denied_streak = 0
             if not opened and not self._stop.is_set():
                 self.ready = False
                 self.active_port = None
                 if not self.last_error:
                     self.last_error = "Nao foi possivel falar com a placa de botoes"
-                logger.error("%s Retrying in 5s...", self.last_error)
+                if self._access_denied_streak <= 1 or self._access_denied_streak % 12 == 0:
+                    logger.error("%s Retrying in 5s...", self.last_error)
                 time.sleep(5)
 
 

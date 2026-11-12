@@ -177,7 +177,8 @@ def install_python_deps() -> Path:
     host_python = find_python()
     venv = INSTALL_DIR / ".venv"
     python = venv / "Scripts" / "python.exe"
-    pip = venv / "Scripts" / "pip.exe"
+    # Always use `python -m pip` (pip.exe self-upgrade is blocked on Python 3.15+).
+    pip_cmd = [str(python), "-m", "pip"]
     # Recreate venv if missing or built with a different host interpreter
     recreate = not python.exists()
     if python.exists():
@@ -189,13 +190,15 @@ def install_python_deps() -> Path:
             recreate = True
     if recreate:
         run([host_python, "-m", "venv", str(venv)])
-    run([str(pip), "install", "--upgrade", "pip", "wheel"])
+    if not python.exists():
+        raise SystemExit(f"venv python missing after create: {python}")
+    run([*pip_cmd, "install", "--upgrade", "pip", "wheel"])
     req = INSTALL_DIR / "requirements-windows.txt"
     if not req.exists():
         req = INSTALL_DIR / "requirements.txt"
     # Prefer binary wheels; Windows deps use ruamel.yaml (no MSVC needed on 3.15)
     try:
-        run([str(pip), "install", "--prefer-binary", "-r", str(req)])
+        run([*pip_cmd, "install", "--prefer-binary", "-r", str(req)])
     except subprocess.CalledProcessError as exc:
         raise SystemExit(
             "Failed to install Python packages.\n"
@@ -291,8 +294,8 @@ cameras:
 
 data_dir: {yaml_quote(str(DATA_DIR).replace(chr(92), "/"))}
 watermark_path: {yaml_quote(str(watermark).replace(chr(92), "/"))}
-# Logo size on video: percent of frame height (5–80). Change in Lance On Control app anytime.
-watermark_height_percent: {float(settings.get("watermark_height_percent", 28))}
+# Logo size on video: percent of frame height (5–40). Change in Lance On Control app anytime.
+watermark_height_percent: {float(settings.get("watermark_height_percent", 16))}
 """
     CONFIG_PATH.write_text(content, encoding="utf-8")
     log(f"Wrote {CONFIG_PATH}")
@@ -317,19 +320,30 @@ def write_helper_scripts(python: Path) -> Path:
     if not pythonw_exe.is_file():
         pythonw_exe = python_exe
 
+    pythonw_start = python_exe.with_name("pythonw.exe")
+    launcher = pythonw_start if pythonw_start.is_file() else python_exe
     _write_bat(
         start,
         [
             "@echo off",
             "setlocal EnableExtensions",
+            "title LanceOnCapture",
             f'cd /d "{INSTALL_DIR}"',
             f'if not exist "{python_exe}" (',
             f'  echo [Lance On] Python missing: {python_exe}',
             f'  echo Re-run LanceOn-Setup.bat',
+            "  timeout /t 20 >nul",
             "  exit /b 1",
             ")",
-            f'"{python_exe}" "{INSTALL_DIR / "run.py"}" --config "{CONFIG_PATH}"',
-            "exit /b %ERRORLEVEL%",
+            # Run in foreground (no "start /B") so the process stays alive under schtasks.
+            # pythonw = no console; ffmpeg is hidden separately in buffer.py.
+            f'"{launcher}" "{INSTALL_DIR / "run.py"}" --config "{CONFIG_PATH}"',
+            "set ERR=%ERRORLEVEL%",
+            "if not %ERR%==0 (",
+            f'  echo See {LOG_DIR / "capture.log"} and {LOG_DIR / "capture-crash.log"}',
+            "  timeout /t 20 >nul",
+            ")",
+            "exit /b %ERR%",
         ],
     )
     _write_bat(
@@ -338,11 +352,16 @@ def write_helper_scripts(python: Path) -> Path:
             "@echo off",
             "setlocal EnableExtensions",
             "echo Stopping Lance On capture...",
+            f'if exist "{LOG_DIR / "capture.pid"}" (',
+            f'  set /p PID=<"{LOG_DIR / "capture.pid"}"',
+            "  if defined PID taskkill /PID %PID% /T /F >nul 2>&1",
+            f'  del "{LOG_DIR / "capture.pid"}" >nul 2>&1',
+            ")",
             'taskkill /F /FI "WINDOWTITLE eq LanceOnCapture*" 2>nul',
-            # wmic is removed on many Windows 11 installs — use PowerShell instead
-            "powershell -NoProfile -ExecutionPolicy Bypass -Command "
+            "powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command "
             "\"Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | "
-            "Where-Object { $_.CommandLine -and $_.CommandLine -like '*LanceOn*run.py*' } | "
+            "Where-Object { $_.CommandLine -and $_.CommandLine -like '*run.py*--config*' "
+            "-and $_.CommandLine -like '*LanceOn*' } | "
             "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }\" "
             "2>nul",
             f"schtasks /End /TN {TASK_NAME} 2>nul",
@@ -354,11 +373,13 @@ def write_helper_scripts(python: Path) -> Path:
         [
             "@echo off",
             "setlocal EnableExtensions",
-            f'if exist "{LOG_DIR / "capture.log"}" (',
-            f'  type "{LOG_DIR / "capture.log"}"',
-            ") else (",
-            "  echo Log not found yet.",
-            ")",
+            "title LanceOn Status",
+            f'if not exist "{LOG_DIR}" mkdir "{LOG_DIR}"',
+            f'if not exist "{LOG_DIR / "capture.log"}" type nul > "{LOG_DIR / "capture.log"}"',
+            "echo Lance On — status ao vivo (fechar esta janela NAO para o gravador)",
+            "echo.",
+            "powershell -NoProfile -ExecutionPolicy Bypass -Command "
+            f"\"Get-Content -LiteralPath '{LOG_DIR / 'capture.log'}' -Tail 80 -Wait\"",
             "echo.",
             "pause",
         ],

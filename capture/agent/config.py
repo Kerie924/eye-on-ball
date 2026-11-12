@@ -59,7 +59,7 @@ class AgentConfig:
     button_hub: ButtonHubConfig | None = None
     watermark_path: Path | None = None
     # Logo height as % of video frame height (configurable without code changes)
-    watermark_height_percent: float = 28.0
+    watermark_height_percent: float = 16.0
     queue_max_hours: int = 48
     queue_max_mb: int = 4096
     upload_retry_seconds: int = 20
@@ -150,11 +150,15 @@ def load_config(path: str | Path) -> AgentConfig:
 
     try:
         watermark_height_percent = float(
-            raw.get("watermark_height_percent", raw.get("watermark_scale_percent", 28))
+            raw.get("watermark_height_percent", raw.get("watermark_scale_percent", 16))
         )
     except (TypeError, ValueError):
-        watermark_height_percent = 28.0
-    watermark_height_percent = max(5.0, min(80.0, watermark_height_percent))
+        watermark_height_percent = 16.0
+    # >40 was common with the old broken scale (main_h); map to a readable frame %.
+    if watermark_height_percent > 40.0:
+        watermark_height_percent = 16.0
+    else:
+        watermark_height_percent = max(5.0, min(40.0, watermark_height_percent))
 
     return AgentConfig(
         api_url=raw["api_url"].rstrip("/"),

@@ -41,9 +41,12 @@ if errorlevel 1 (
 )
 
 copy /Y "%~dp0control_app.py" "%CAPTURE%\control_app.py" >nul
+if exist "%~dp0run.py" copy /Y "%~dp0run.py" "%CAPTURE%\run.py" >nul
 if exist "%~dp0agent" xcopy /E /I /Y "%~dp0agent" "%CAPTURE%\agent\" >nul
 if exist "%~dp0windows_pins.py" copy /Y "%~dp0windows_pins.py" "%CAPTURE%\windows_pins.py" >nul
 if exist "%~dp0install_windows.py" copy /Y "%~dp0install_windows.py" "%CAPTURE%\install_windows.py" >nul
+if exist "%~dp0start-capture.bat" copy /Y "%~dp0start-capture.bat" "%ROOT%\start-capture.bat" >nul
+if exist "%~dp0status-capture.bat" copy /Y "%~dp0status-capture.bat" "%ROOT%\status-capture.bat" >nul
 
 REM stop-capture.bat: replace removed wmic with PowerShell
 (
