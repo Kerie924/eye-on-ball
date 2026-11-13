@@ -7,15 +7,18 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-# (connect timeout, read timeout) — fail fast on a dead WAN, wait longer for uploads.
+# Heartbeat/poll: fail fast. Uploads: long timeout — Windows applies the
+# connect timeout to socket *writes*, so a 20s connect killed 7–8MB POSTs
+# ("The write operation timed out") on slow court uplinks.
 _HEARTBEAT_TIMEOUT = (8, 15)
 _POLL_TIMEOUT = (8, 15)
+_UPLOAD_TIMEOUT = (300, 300)
 _UPLOAD_RETRIES = 3
-_UPLOAD_RETRY_DELAY = 3
+_UPLOAD_RETRY_DELAY = 5
 
 
 class ApiClient:
-    def __init__(self, api_url: str, device_key: str, timeout: int = 120) -> None:
+    def __init__(self, api_url: str, device_key: str, timeout: int = 300) -> None:
         self.api_url = api_url.rstrip("/")
         self.device_key = device_key
         self.timeout = timeout
@@ -60,7 +63,7 @@ class ApiClient:
                             "triggered_at": triggered_at.isoformat(),
                         },
                         files={"file": (clip_path.name, handle, "video/mp4")},
-                        timeout=(20, self.timeout),
+                        timeout=_UPLOAD_TIMEOUT,
                     )
                 response.raise_for_status()
                 payload = response.json()

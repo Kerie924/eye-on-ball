@@ -78,8 +78,17 @@ class UploadQueue:
             return list(jobs)
 
     def next_job(self) -> dict | None:
+        """Prefer newest clips so today's tests are not stuck behind an old backlog."""
         jobs = self.pending()
-        return jobs[0] if jobs else None
+        if not jobs:
+            return None
+        return min(
+            jobs,
+            key=lambda job: (
+                int(job.get("attempts") or 0),
+                -_parse_ts(job.get("created_at")),
+            ),
+        )
 
     def rotate_job(self, job_id: str) -> None:
         """Move a failed job to the end so later clips can upload."""
