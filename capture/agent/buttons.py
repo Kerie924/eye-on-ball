@@ -239,7 +239,16 @@ class SerialHubListener:
             pin_txt,
             camera_index,
         )
-        self.on_trigger(camera_index)
+        # Never run clip build on the serial reader thread. Building blocks
+        # readline for ~1–2 min; bounce/extra Arduino lines then sit in the
+        # OS COM buffer and fire as soon as the clip finishes (one press →
+        # many clips). Keep reading + apply cooldown/busy-lock instead.
+        threading.Thread(
+            target=self.on_trigger,
+            args=(camera_index,),
+            daemon=True,
+            name=f"hub-trigger-cam-{camera_index}",
+        ).start()
 
     def _parse_message(self, message: str) -> int | None:
         text = message.strip()
@@ -409,7 +418,12 @@ class ButtonListener:
             return
         self._last_trigger = now
         logger.info("Button triggered for camera %s", self.camera.index)
-        self.on_trigger(self.camera.index)
+        threading.Thread(
+            target=self.on_trigger,
+            args=(self.camera.index,),
+            daemon=True,
+            name=f"trigger-cam-{self.camera.index}",
+        ).start()
 
     def _run_serial(self) -> None:
         try:
