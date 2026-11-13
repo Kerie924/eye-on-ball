@@ -81,6 +81,22 @@ class UploadQueue:
         jobs = self.pending()
         return jobs[0] if jobs else None
 
+    def rotate_job(self, job_id: str) -> None:
+        """Move a failed job to the end so later clips can upload."""
+        with self._lock:
+            jobs = self._read_jobs()
+            moved = None
+            kept: list[dict] = []
+            for job in jobs:
+                if moved is None and job.get("id") == job_id:
+                    moved = job
+                else:
+                    kept.append(job)
+            if moved is None:
+                return
+            kept.append(moved)
+            self._write_jobs(kept)
+
     def mark_uploaded(self, job_id: str) -> None:
         with self._lock:
             jobs = self._read_jobs()

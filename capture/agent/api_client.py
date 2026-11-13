@@ -19,7 +19,7 @@ class ApiClient:
         self.api_url = api_url.rstrip("/")
         self.device_key = device_key
         self.timeout = timeout
-        self.headers = {"X-Device-Key": device_key}
+        self.headers = {"X-Device-Key": device_key, "Connection": "close"}
 
     def heartbeat(self, camera_index: int) -> None:
         response = requests.post(
@@ -60,7 +60,7 @@ class ApiClient:
                             "triggered_at": triggered_at.isoformat(),
                         },
                         files={"file": (clip_path.name, handle, "video/mp4")},
-                        timeout=(15, self.timeout),
+                        timeout=(20, self.timeout),
                     )
                 response.raise_for_status()
                 payload = response.json()
@@ -75,14 +75,31 @@ class ApiClient:
                 if attempt >= attempts:
                     break
                 logger.warning(
-                    "Upload for camera %s failed (%s); retry %s/%s in %ss",
+                    "Upload for camera %s failed (%s: %s); retry %s/%s in %ss",
                     camera_index,
                     exc.__class__.__name__,
+                    str(exc).replace("\n", " ")[:180],
                     attempt,
                     attempts,
                     _UPLOAD_RETRY_DELAY,
                 )
                 time.sleep(_UPLOAD_RETRY_DELAY)
+            except requests.HTTPError as exc:
+                last_error = exc
+                status = exc.response.status_code if exc.response is not None else "?"
+                body = ""
+                if exc.response is not None:
+                    try:
+                        body = (exc.response.text or "")[:180]
+                    except Exception:
+                        body = ""
+                logger.warning(
+                    "Upload for camera %s HTTP %s: %s",
+                    camera_index,
+                    status,
+                    body,
+                )
+                break
         assert last_error is not None
         raise last_error
 

@@ -314,7 +314,7 @@ class CaptureService:
                     int(job["camera_index"]),
                     clip_path,
                     triggered_at,
-                    retries=1,
+                    retries=3,
                 )
                 self.queue.mark_uploaded(job["id"])
                 logger.info(
@@ -323,22 +323,40 @@ class CaptureService:
                     job["camera_index"],
                 )
             except Exception as exc:
-                self.queue.mark_failed(job["id"], exc.__class__.__name__)
-                logger.warning(
-                    "Queued clip %s for camera %s not uploaded (%s). "
-                    "Kept on disk; retry in %ss",
-                    job["id"],
-                    job["camera_index"],
-                    exc.__class__.__name__,
-                    self.config.upload_retry_seconds,
-                )
+                detail = str(exc).replace("\n", " ")[:240]
+                self.queue.mark_failed(job["id"], f"{exc.__class__.__name__}: {detail}")
+                pending = len(self.queue.pending())
+                if pending > 1:
+                    self.queue.rotate_job(job["id"])
+                    logger.warning(
+                        "Queued clip %s for camera %s not uploaded (%s: %s). "
+                        "Moved to end of queue (%s waiting); retry in %ss",
+                        job["id"],
+                        job["camera_index"],
+                        exc.__class__.__name__,
+                        detail,
+                        pending,
+                        self.config.upload_retry_seconds,
+                    )
+                else:
+                    logger.warning(
+                        "Queued clip %s for camera %s not uploaded (%s: %s). "
+                        "Kept on disk; retry in %ss",
+                        job["id"],
+                        job["camera_index"],
+                        exc.__class__.__name__,
+                        detail,
+                        self.config.upload_retry_seconds,
+                    )
                 self._stop.wait(self.config.upload_retry_seconds)
 
     def _remote_trigger_loop(self) -> None:
         """Poll backend for mobile PRONTO / remote capture requests."""
+        poll_wait = 1.5
         while not self._stop.is_set():
             try:
                 pending = self.api.claim_pending_triggers()
+                poll_wait = 1.5
                 threads = []
                 for item in pending:
                     camera_index = int(item.get("camera_index", 0))
@@ -367,7 +385,8 @@ class CaptureService:
                     thread.join()
             except Exception as exc:
                 logger.warning("Failed to poll remote triggers (%s)", exc.__class__.__name__)
-            self._stop.wait(1.5)
+                poll_wait = min(20.0, max(8.0, poll_wait * 2))
+            self._stop.wait(poll_wait)
 
     def stop(self) -> None:
         self._stop.set()
