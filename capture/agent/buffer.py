@@ -1,4 +1,5 @@
 import logging
+import os
 import shutil
 import subprocess
 import sys
@@ -384,6 +385,14 @@ class BufferRecorder:
         for index, raw in enumerate(raw_copies):
             closed = dest_dir / f"seg_{index:03d}.mp4"
             if _finalize_mp4(raw, closed):
+                # Keep the segment's record time. The remux file's own mtime is
+                # "now", which made a full buffer report as ~5s and could drop
+                # the older segments from the 30s window.
+                try:
+                    st = raw.stat()
+                    os.utime(closed, (st.st_atime, st.st_mtime))
+                except OSError:
+                    pass
                 raw.unlink(missing_ok=True)
                 finalized.append(closed)
             else:
@@ -438,8 +447,6 @@ def _finalize_mp4(source: Path, output_path: Path) -> bool:
         "-an",
         "-vf",
         f"setpts=N/({fps}*TB)",
-        "-vsync",
-        "cfr",
         "-r",
         str(fps),
         "-c:v",
@@ -573,8 +580,6 @@ def build_clip(
         "-an",
         "-vf",
         f"setpts=N/({fps}*TB)",
-        "-vsync",
-        "cfr",
         "-r",
         str(fps),
         "-c:v",
