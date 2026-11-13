@@ -141,7 +141,7 @@ class BufferRecorder:
             "-rtsp_transport",
             "tcp",
             "-fflags",
-            "+genpts",
+            "+genpts+discardcorrupt",
             "-i",
             self.camera.rtsp_url,
             *common_tail,
@@ -421,15 +421,27 @@ def _finalize_mp4(source: Path, output_path: Path) -> bool:
     result = _run_ffmpeg(command, capture_output=True, text=True, check=False)
     if result.returncode == 0 and output_path.exists() and output_path.stat().st_size > 1024:
         return True
+    # Copy failed. Re-encode from the frame count, not the camera PTS, or this
+    # segment is already a frozen loop before the clip join runs.
+    output_path.unlink(missing_ok=True)
+    fps = _output_fps([source])
     command = [
         "ffmpeg",
         "-hide_banner",
         "-loglevel",
         "error",
         "-y",
+        "-fflags",
+        "+genpts+discardcorrupt",
         "-i",
         str(source),
         "-an",
+        "-vf",
+        f"setpts=N/({fps}*TB)",
+        "-vsync",
+        "cfr",
+        "-r",
+        str(fps),
         "-c:v",
         "libx264",
         "-preset",
@@ -451,23 +463,15 @@ def estimate_buffer_seconds(
     *,
     fallback_each: float = 2.0,
 ) -> float:
-    """Prefer ffprobe; if metadata is missing, fall back to size/count estimates."""
+    """How many real seconds these files cover.
+
+    Court cameras often stamp a 2–5s GOP with a huge PTS gap. ffprobe then
+    reports 20–30s for a file that only contains a few seconds of pictures,
+    and the old probe-first sum made a frozen clip look like a full buffer.
+    Wall-clock mtime (when ffmpeg closed each segment) is the real span.
+    """
     if not segment_paths:
         return 0.0
-    probed = 0.0
-    known = 0
-    for path in segment_paths:
-        duration = media_duration(path)
-        if duration > 0.05:
-            probed += duration
-            known += 1
-    if known >= max(1, len(segment_paths) // 2):
-        # Enough probes succeeded — scale for unknowns
-        if known < len(segment_paths):
-            avg = probed / known
-            probed += avg * (len(segment_paths) - known)
-        return probed
-    # Mostly unreadable metadata (old broken mp4 fragments): use wall-clock span
     try:
         mtimes = [p.stat().st_mtime for p in segment_paths]
         span = max(mtimes) - min(mtimes)
@@ -475,6 +479,17 @@ def estimate_buffer_seconds(
             return span + fallback_each
     except OSError:
         pass
+    probed = 0.0
+    known = 0
+    for path in segment_paths:
+        duration = media_duration(path)
+        if duration > 0.05:
+            probed += duration
+            known += 1
+    if known:
+        if known < len(segment_paths):
+            probed += (probed / known) * (len(segment_paths) - known)
+        return probed
     return float(len(segment_paths)) * fallback_each
 
 
@@ -484,20 +499,24 @@ def select_segments_for_clip(
     *,
     fallback_each: float = 2.0,
 ) -> list[Path]:
-    """Take the newest segments whose durations sum to at least clip_seconds."""
+    """Take the newest segments that cover clip_seconds of wall clock.
+
+    Do not trust ffprobe duration here. A segment whose pictures last 5s can
+    probe as 30s, and summing those durations kept only one GOP — which the
+    encoder then held/repeated until the clip was 30s ("same 5s scene").
+    """
     if not segment_paths:
         return []
-    chosen: list[Path] = []
-    total = 0.0
-    for path in reversed(segment_paths):
-        chosen.append(path)
-        duration = media_duration(path)
-        if duration <= 0.05:
-            duration = fallback_each
-        total += duration
-        if total >= clip_seconds + 0.5:
-            break
-    chosen.reverse()
+    try:
+        newest = max(p.stat().st_mtime for p in segment_paths)
+        # One extra segment so the trim still has a frame before the window.
+        cutoff = newest - float(clip_seconds) - float(fallback_each)
+        chosen = [p for p in segment_paths if p.stat().st_mtime >= cutoff]
+    except OSError:
+        chosen = []
+    if not chosen:
+        count = max(1, int(float(clip_seconds) / max(0.5, float(fallback_each))) + 2)
+        chosen = list(segment_paths[-count:])
     return chosen
 
 
@@ -527,14 +546,24 @@ def build_clip(
             path = str(segment.resolve()).replace("'", r"'\''")
             handle.write(f"file '{path}'\n")
 
-    # Always re-encode the join: copy-concat of keyframe-broken segments often
-    # yields a short/wrong timeline (client saw ~13s starting at phone :17).
+    # Rebuild timestamps from the frame count. Camera PTS often has a multi-second
+    # hole inside each GOP; the old encode filled that hole by repeating the last
+    # picture, so a 5s moment became a 30s clip of the same scene. One coded
+    # frame must become exactly 1/fps of output, then we trim.
+    fps = _output_fps(selected)
+    logger.info(
+        "Joining %s segment(s) at %sfps (ignoring camera timestamps)",
+        len(selected),
+        fps,
+    )
     concat_cmd = [
         "ffmpeg",
         "-hide_banner",
         "-loglevel",
         "error",
         "-y",
+        "-fflags",
+        "+genpts+discardcorrupt",
         "-f",
         "concat",
         "-safe",
@@ -542,6 +571,12 @@ def build_clip(
         "-i",
         str(list_file),
         "-an",
+        "-vf",
+        f"setpts=N/({fps}*TB)",
+        "-vsync",
+        "cfr",
+        "-r",
+        str(fps),
         "-c:v",
         "libx264",
         "-preset",
@@ -550,8 +585,8 @@ def build_clip(
         "23",
         "-pix_fmt",
         "yuv420p",
-        "-fflags",
-        "+genpts",
+        "-g",
+        str(fps),
         "-movflags",
         "+faststart",
         str(concat_path),
@@ -559,6 +594,8 @@ def build_clip(
     result = _run_ffmpeg(concat_cmd, capture_output=True, text=True, check=False)
     list_file.unlink(missing_ok=True)
     if result.returncode != 0 or not concat_path.exists():
+        concat_path.unlink(missing_ok=True)
+        output_path.unlink(missing_ok=True)
         raise RuntimeError(result.stderr.strip() or "Failed to concatenate buffer segments")
 
     concat_duration = media_duration(concat_path)
@@ -584,13 +621,17 @@ def build_clip(
             watermark_path=watermark_path,
             watermark_height_percent=watermark_height_percent,
         )
+        if not output_path.exists() or output_path.stat().st_size == 0:
+            raise RuntimeError("Generated clip is empty")
+        final_duration = assert_clip_playable(output_path)
+    except Exception:
+        # Never leave a broken file in clips/. The next start picks those up
+        # and uploads them (unplayable recordings).
+        output_path.unlink(missing_ok=True)
+        raise
     finally:
         concat_path.unlink(missing_ok=True)
 
-    if not output_path.exists() or output_path.stat().st_size == 0:
-        raise RuntimeError("Generated clip is empty")
-
-    final_duration = media_duration(output_path)
     logger.info("Final clip duration=%.2fs (target=%ss)", final_duration, clip_seconds)
 
 
@@ -634,6 +675,78 @@ def media_duration(path: Path) -> float:
             except ValueError:
                 continue
     return 0.0
+
+
+def media_fps(path: Path) -> float:
+    """Stream frame rate, or 0 when the metadata is missing or absurd."""
+    command = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=avg_frame_rate",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        str(path),
+    ]
+    result = _run_ffmpeg(command, capture_output=True, text=True, check=False)
+    text = (result.stdout or "").strip().splitlines()
+    for line in text:
+        if not line or line.upper() == "N/A":
+            continue
+        try:
+            if "/" in line:
+                num, den = line.split("/", 1)
+                den_f = float(den)
+                if den_f == 0:
+                    continue
+                return float(num) / den_f
+            return float(line)
+        except ValueError:
+            continue
+    return 0.0
+
+
+def _output_fps(paths: list[Path]) -> int:
+    for path in paths:
+        fps = media_fps(path)
+        if 10.0 <= fps <= 60.0:
+            return int(round(fps))
+    return 30
+
+
+def assert_clip_playable(path: Path) -> float:
+    """Refuse to upload a file that players cannot decode.
+
+    A zero-length moov, a missing keyframe, or a clip shorter than a second
+    used to be queued anyway. The API stores those bytes and the phone shows
+    a recording that will not play.
+    """
+    if not path.exists() or path.stat().st_size < 4096:
+        raise RuntimeError(f"Clip is missing or too small to play: {path.name}")
+    duration = media_duration(path)
+    if duration < 1.0:
+        raise RuntimeError(f"Clip is {duration:.2f}s — not playable")
+    command = [
+        "ffmpeg",
+        "-hide_banner",
+        "-v",
+        "error",
+        "-xerror",
+        "-i",
+        str(path),
+        "-f",
+        "null",
+        "-",
+    ]
+    result = _run_ffmpeg(command, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        detail = (result.stderr or "").strip().splitlines()
+        tail = detail[-1] if detail else "decode failed"
+        raise RuntimeError(f"Clip will not play: {tail[:240]}")
+    return duration
 
 
 # Alias for older service.py imports after partial court-PC updates
